@@ -1,0 +1,34 @@
+name: FPL Digest
+
+# Runs automatically every Friday 09:00 UTC (before the typical Saturday
+# deadline) and can also be triggered by hand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 9 * * 5"   # Fri 09:00 UTC — adjust if deadlines move
+  workflow_dispatch:        # manual "Run workflow" button
+
+permissions:
+  contents: write           # needed to commit digest.md back to the repo
+
+jobs:
+  build-digest:
+    runs-on: ubuntu-latest
+    env:
+      FPL_TEAM_ID: "6572775"   # <-- your Team ID
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch FPL data and build digest
+        run: python fetch_fpl.py
+
+      - name: Commit digest if changed
+        run: |
+          git config user.name  "fpl-bot"
+          git config user.email "fpl-bot@users.noreply.github.com"
+          git add digest.md
+          git diff --staged --quiet || git commit -m "Update FPL digest ($(date -u +%Y-%m-%d))"
+          git push
