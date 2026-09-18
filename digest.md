@@ -1,43 +1,43 @@
 # FPL DIGEST — Team 6572775
-_generated 2026-09-11 13:22 UTC · last finished GW3 · upcoming **GW4** (deadline 2026-09-12T12:30:00Z)_
+_generated 2026-09-18 13:29 UTC · last finished GW4 · upcoming **GW5** (deadline 2026-09-18T17:30:00Z)_
 
 ## Manager
-- Overall rank: **615,138**  | total points: **221**
-- Last GW: 47 pts (rank 6,992,290), 3 left on bench, £0.8m ITB, squad value £100.3m
-- Chips used: 3xc (GW2)
-- Transfers made last GW: 1 (cost 0 pts)
+- Overall rank: **89,453**  | total points: **327**
+- Last GW: 106 pts (rank 51,493), 12 left on bench, £0.1m ITB, squad value £100.5m
+- Chips used: 3xc (GW2), wildcard (GW4)
+- Transfers made last GW: 0 (cost 0 pts)
 
 ## Starting XI
 | Pos | Player | Club | £ | Form | Tot | Own | LastGW | Next fixture | Flag |
 |---|---|---|---|---|---|---|---|---|---|
-| GK | Suzuki  | AVL | £5.0 | 4.0 | 12 | 1.7% | 10 | NFO(H,FDR3) |  |
-| DEF | Calafiori  | ARS | £5.8 | 7.3 | 22 | 48.5% | 2 | SUN(A,FDR3) |  |
-| DEF | De Cuyper  | BHA | £4.8 | 7.0 | 21 | 21.0% | 4 | COV(A,FDR2) |  |
-| DEF | Robinson  | FUL | £4.5 | 1.3 | 4 | 1.4% | 1 | LIV(A,FDR4) |  |
-| MID | B.Fernandes  | MUN | £12.0 | 9.0 | 27 | 44.4% | 2 | MCI(H,FDR4) |  |
-| MID | Szoboszlai  | LIV | £7.0 | 5.0 | 15 | 38.4% | 3 | FUL(H,FDR2) |  |
-| MID | Cherki (VC) | MCI | £7.8 | 8.3 | 25 | 29.7% | 3 | MUN(A,FDR4) |  |
-| MID | Groß  | BHA | £5.6 | 5.3 | 16 | 16.3% | 1 | COV(A,FDR2) |  |
-| FWD | Haaland (C) | MCI | £15.5 | 8.0 | 24 | 71.3% | 9 | MUN(A,FDR4) |  |
-| FWD | Calvert-Lewin  | LEE | £6.0 | 3.3 | 10 | 22.9% | 1 | NEW(H,FDR2) |  |
-| FWD | Brobbey  | SUN | £5.9 | 2.0 | 6 | 7.4% | 2 | ARS(H,FDR4) |  |
+| GK | Suzuki  | AVL | £5.0 | 3.5 | 14 | 1.8% | 2 | TOT(A,FDR3) |  |
+| DEF | Calafiori  | ARS | £5.8 | 7.0 | 28 | 50.2% | 6 | BHA(A,FDR3) |  |
+| DEF | De Cuyper  | BHA | £4.9 | 8.0 | 32 | 24.3% | 11 | ARS(H,FDR4) |  |
+| DEF | Van Hecke  | TOT | £4.9 | 4.5 | 18 | 6.7% | 8 | AVL(H,FDR3) |  |
+| MID | Gibbs-White  | NFO | £8.0 | 6.5 | 26 | 15.6% | 8 | COV(H,FDR2) |  |
+| MID | Szoboszlai  | LIV | £7.0 | 4.5 | 18 | 34.7% | 3 | BOU(A,FDR3) |  |
+| MID | Groß  | BHA | £5.7 | 8.2 | 33 | 20.4% | 17 | ARS(H,FDR4) |  |
+| MID | Rogers (VC) | CHE | £7.7 | 6.8 | 27 | 39.5% | 8 | BRE(A,FDR3) |  |
+| FWD | Haaland  | MCI | £15.6 | 8.2 | 33 | 73.2% | 9 | SUN(H,FDR2) |  |
+| FWD | João Pedro (C) | CHE | £7.8 | 8.2 | 33 | 70.4% | 12 | BRE(A,FDR3) | doubtful 75% |
+| FWD | Calvert-Lewin  | LEE | £6.0 | 5.0 | 20 | 25.2% | 10 | CRY(H,FDR3) |  |
 
 ## Bench (in order)
 | Pos | Player | Club | £ | Form | Tot | Own | LastGW | Next fixture | Flag |
 |---|---|---|---|---|---|---|---|---|---|
-| GK | Dubravka  | TOT | £4.0 | 0.0 | 0 | 17.9% | 0 | EVE(H,FDR3) |  |
-| MID | Ndiaye  | MCI | £5.9 | 5.3 | 16 | 9.4% | 3 | MUN(A,FDR4) |  |
-| DEF | Heaven  | MUN | £4.4 | 0.3 | 1 | 0.3% | 0 | MCI(H,FDR4) |  |
-| DEF | Mosquera  | ARS | £5.4 | 4.0 | 12 | 3.0% | 0 | SUN(A,FDR3) | doubtful 50% |
+| GK | Dubravka  | TOT | £4.0 | 0.0 | 0 | 17.6% | 0 | AVL(H,FDR3) |  |
+| MID | Cherki  | MCI | £7.8 | 6.5 | 26 | 28.1% | 1 | SUN(H,FDR2) |  |
+| DEF | Gvardiol  | MCI | £5.7 | 8.2 | 33 | 25.5% | 11 | SUN(H,FDR2) |  |
+| DEF | Hall  | NEW | £5.2 | 4.5 | 18 | 14.7% | 0 | HUL(H,FDR2) |  |
 
-## GW4 fixtures (all)
-- AVL (FDR 3) v NFO (FDR 4)
-- BOU (FDR 3) v BRE (FDR 3)
-- CHE (FDR 2) v HUL (FDR 4)
-- CRY (FDR 2) v IPS (FDR 3)
-- LIV (FDR 2) v FUL (FDR 4)
-- TOT (FDR 3) v EVE (FDR 3)
-- SUN (FDR 4) v ARS (FDR 3)
-- COV (FDR 2) v BHA (FDR 2)
-- MUN (FDR 4) v MCI (FDR 4)
-- LEE (FDR 2) v NEW (FDR 3)
+## GW5 fixtures (all)
+- BRE (FDR 4) v CHE (FDR 3)
+- TOT (FDR 3) v AVL (FDR 3)
+- BHA (FDR 4) v ARS (FDR 3)
+- EVE (FDR 2) v IPS (FDR 3)
+- NEW (FDR 2) v HUL (FDR 3)
+- NFO (FDR 2) v COV (FDR 3)
+- BOU (FDR 4) v LIV (FDR 3)
+- LEE (FDR 3) v CRY (FDR 3)
+- MCI (FDR 2) v SUN (FDR 5)
+- FUL (FDR 4) v MUN (FDR 3)
