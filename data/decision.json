@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "mode": "rules-only",
+  "status": "ready",
+  "snapshot_status": {
+    "stale": false,
+    "age_hours": 0.0,
+    "message": "Snapshot is current."
+  },
+  "deadline_utc": "2026-10-10T10:00:00Z",
+  "blockers": [],
+  "recommendation": {
+    "action": "Investigate João Pedro before committing the transfer.",
+    "why": "FPL lists 75% availability.",
+    "alternative": "Hold the transfer until official team news is clearer.",
+    "what_would_change": "Confirmed availability, minutes news, or a deadline-driven need to act."
+  },
+  "unconfirmed_inputs": [
+    "Free transfers and selling prices are not in the public snapshot.",
+    "Rivals' unsubmitted moves and captain choices are unavailable."
+  ],
+  "jev": {
+    "enabled": false,
+    "status": "disabled",
+    "message": "Jev is disabled. The desk is using deterministic rules only."
+  }
+}

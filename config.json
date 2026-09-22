@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "team_id": 6572775,
+  "league_id": 461748,
+  "timezone": "Asia/Bangkok",
+  "fixture_horizon": 6,
+  "top_rivals": 10,
+  "nearby_rivals_each_side": 3,
+  "watchlist_player_ids": [],
+  "stale_after_hours": 8,
+  "research_stale_after_hours": 24,
+  "research_sources": [
+    {"id": "official-fpl-news", "publisher": "Fantasy Premier League", "host": "fantasy.premierleague.com", "url": "https://fantasy.premierleague.com/api/bootstrap-static/"},
+    {"id": "official-arsenal-news", "publisher": "Arsenal Football Club", "host": "www.arsenal.com", "url": "https://www.arsenal.com/news/all/1"}
+  ],
+  "jev": {"enabled": false}
+}

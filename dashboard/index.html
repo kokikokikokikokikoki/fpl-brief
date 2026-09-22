@@ -1,0 +1,11 @@
+<!--
+THESIS: A weekly FPL decision desk, not a sports-news homepage.
+OWN-WORLD: Ink-blue analysis field, off-white type, grass-green action signals, crisp ruled panels.
+STORY: See the league position, diagnose the squad, then compare a timing decision with its evidence.
+FIRST VIEWPORT: League rail at left; decision strip and action summary span the analysis canvas; refresh is top-right.
+FORM: Matchday control-room briefing, ordered first for an operating surface; staging is a compact analyst desk.
+-->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FPL Brief — #club-football</title><link rel="stylesheet" href="styles.css"></head>
+<body><div class="app-shell"><aside class="league-rail"><a class="wordmark" href="#overview"><span class="ball">●</span> FPL BRIEF</a><p class="rail-label">PRIVATE LEAGUE DESK</p><div id="league-snapshot" class="league-snapshot skeleton"></div><nav aria-label="Dashboard sections"><button class="nav-link active" data-view="overview">Overview</button><button class="nav-link" data-view="squad">My squad <span id="nav-alerts" class="nav-count"></span></button><button class="nav-link" data-view="wildcard">Wildcard lab</button><button class="nav-link" data-view="rivals">Rivals</button><button class="nav-link" data-view="players">Player pool</button></nav><p class="rail-foot">Public FPL data only.<br>Never makes transfers.</p></aside><main><header class="topbar"><div><p class="eyebrow" id="snapshot-time">LOADING SNAPSHOT</p><h1>League control room</h1></div><div class="top-actions"><span id="refresh-status" class="status-text" aria-live="polite"></span><button id="refresh" class="button-primary">Refresh FPL data</button></div></header><div id="stale-banner" hidden></div><section id="overview" class="view active"></section><section id="squad" class="view"></section><section id="wildcard" class="view"></section><section id="rivals" class="view"></section><section id="players" class="view"></section></main></div><script src="app.js"></script></body></html>
+<script src="decision-states.js"></script>
+<script src="desk-tools.js"></script>

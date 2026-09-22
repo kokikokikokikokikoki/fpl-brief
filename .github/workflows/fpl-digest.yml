@@ -1,18 +1,23 @@
 name: FPL Digest
 
-# Runs automatically every Friday 09:00 UTC (before the typical Saturday
-# deadline) and can also be triggered by hand from the Actions tab.
+# Runs every six hours for current injury and fixture data, and can also be
+# triggered by hand from the Actions tab.
 on:
   schedule:
-    - cron: "0 9 * * 5"   # Fri 09:00 UTC — adjust if deadlines move
+    - cron: "17 */6 * * *"
   workflow_dispatch:        # manual "Run workflow" button
 
 permissions:
   contents: write           # needed to commit digest.md back to the repo
 
+concurrency:
+  group: fpl-digest
+  cancel-in-progress: false
+
 jobs:
   build-digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       FPL_TEAM_ID: "6572775"   # <-- your Team ID
     steps:
@@ -22,6 +27,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Run offline checks
+        run: python -m unittest discover -s tests -v
+
       - name: Fetch FPL data and build digest
         run: python fetch_fpl.py
 
@@ -29,6 +37,6 @@ jobs:
         run: |
           git config user.name  "fpl-bot"
           git config user.email "fpl-bot@users.noreply.github.com"
-          git add digest.md
+          git add digest.md data/latest.json data/changes.json
           git diff --staged --quiet || git commit -m "Update FPL digest ($(date -u +%Y-%m-%d))"
           git push
