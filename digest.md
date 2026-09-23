@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
+_Snapshot 2026-09-23T04:48:16.985935+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -40,7 +40,7 @@ _Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
 | Player | Club | Pos | Price | Captain |
 |---|---|---|---|---|
 | Suzuki | AVL | 1 | £5.0m |  |
-| Hall | NEW | 2 | £5.2m |  |
+| Hall | NEW | 2 | £5.3m |  |
 | Gvardiol | MCI | 2 | £5.7m |  |
 | Van Hecke | TOT | 2 | £4.9m |  |
 | Calafiori | ARS | 2 | £5.8m |  |
@@ -51,7 +51,7 @@ _Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
 | Haaland | MCI | 4 | £15.6m | C |
 | Calvert-Lewin | LEE | 4 | £6.0m |  |
 | Dubravka | TOT | 1 | £4.0m |  |
-| João Pedro | CHE | 4 | £7.8m |  |
+| João Pedro | CHE | 4 | £7.7m |  |
 | De Cuyper | BHA | 2 | £4.9m |  |
 | Groß | BHA | 3 | £5.8m |  |
 
