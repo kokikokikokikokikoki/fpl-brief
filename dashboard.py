@@ -197,6 +197,7 @@ class Handler(SimpleHTTPRequestHandler):
         content = target.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+        self.send_header("Cache-Control", "public, max-age=300")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)

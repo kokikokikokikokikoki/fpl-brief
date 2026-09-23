@@ -1,8 +1,10 @@
 import json
 import subprocess
+import threading
 import unittest
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from urllib.request import urlopen
 
 import dashboard
 
@@ -105,3 +107,26 @@ if (fallback.length !== 1 || fallback[0].id !== "hold" || fallback[0].players.le
         self.assertIn('fetch("/api/research", {method:"POST"})', source)
         self.assertIn("ephemeral on Railway", source)
         self.assertNotIn("setInterval", source)
+
+class HostedLoadTests(unittest.TestCase):
+    def test_dashboard_scripts_are_deferred_in_document_order(self):
+        source = Path("dashboard/index.html").read_text(encoding="utf-8")
+        tags = [source.index('src="app.js"'), source.index('src="decision-states.js"'), source.index('src="desk-tools.js"')]
+        self.assertEqual(tags, sorted(tags))
+        for script in ("app.js", "decision-states.js", "desk-tools.js"):
+            self.assertIn(f'src="{script}" defer', source)
+        self.assertLess(source.index("<script"), source.index("</body>"))
+        self.assertGreater(source.index("</body>"), source.index('src="desk-tools.js"'))
+
+    def test_static_assets_are_cacheable_but_api_json_is_not(self):
+        server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urlopen(f"http://127.0.0.1:{server.server_port}/app.js") as response:
+                self.assertEqual(response.headers["Cache-Control"], "public, max-age=300")
+            with urlopen(f"http://127.0.0.1:{server.server_port}/api/workflow-status") as response:
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+        finally:
+            server.shutdown()
+            server.server_close()

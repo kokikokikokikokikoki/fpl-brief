@@ -28,3 +28,19 @@ The client load path now validates every stored draft against the current catalo
 - `git diff --check` — exit 0; only pre-existing LF/CRLF notices.
 
 The task remains `IN_REVIEW` for independent Supervisor review. No commit, push, Railway service creation, deployment, public URL, secret, authentication, cookie, database, upload, schedule, or live collection was performed.
+
+## Hosted-load fix
+
+- `dashboard/index.html` now loads `app.js`, `decision-states.js`, and `desk-tools.js` inside the document with `defer` in deterministic dependency order.
+- `dashboard.py` serves static assets with `Cache-Control: public, max-age=300`; dynamic JSON responses retain `Cache-Control: no-store`.
+- `tests/test_dashboard.py` adds executable local HTTP coverage for script placement/order and static-vs-API cache headers.
+
+Verification for this bounded fix:
+
+- `python -m unittest discover -s tests -v` — exit 0; 54 tests passed. The existing HTTP-error fixture emits its known `ResourceWarning`.
+- `node --check dashboard/app.js` — exit 0.
+- `node --check dashboard/decision-states.js` — exit 0.
+- `node --check dashboard/desk-tools.js` — exit 0.
+- Local injected-port HTTP smoke — exit 0; `railway-port-smoke-ok`.
+
+No FPL/research live calls, Git history changes, remote branch changes, Railway configuration, deployment, or public access changes were made.
