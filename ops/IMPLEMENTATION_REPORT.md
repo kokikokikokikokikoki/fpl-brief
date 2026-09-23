@@ -44,3 +44,17 @@ Verification for this bounded fix:
 - Local injected-port HTTP smoke — exit 0; `railway-port-smoke-ok`.
 
 No FPL/research live calls, Git history changes, remote branch changes, Railway configuration, deployment, or public access changes were made.
+
+## Hosted dashboard loading repair
+
+- `dashboard/decision-states.js` no longer installs a broad self-observing `MutationObserver`; it exposes `window.refreshDecisionStates` and performs one initial feedback pass.
+- `dashboard/app.js` invokes the callback once after the normal render DOM update, guarded with optional chaining.
+- `tests/test_dashboard.py` adds a focused regression asserting the explicit seam and absence of the observer loop.
+
+Verification:
+
+- `python -m unittest discover -s tests -v` — exit 0; 55 tests passed.
+- `node --check dashboard/app.js`, `node --check dashboard/decision-states.js`, and `node --check dashboard/desk-tools.js` — all exit 0.
+- Local HTTP smoke on `PORT=18765` — exit 0; `railway-port-smoke-ok`.
+
+Browser verification was independently run after implementation. The focused seam regression plus browser verification, local HTTP, and syntax checks passed. No live FPL/research call, commit, push, or deployment was performed.

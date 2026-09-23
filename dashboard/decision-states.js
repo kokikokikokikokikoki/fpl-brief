@@ -89,7 +89,6 @@
     overview.prepend(panel);
   }
 
-  const feedback = () => { snapshotFeedback(); decisionFeedback(); };
-  new MutationObserver(feedback).observe(document.body, {childList: true, subtree: true});
+  const feedback = () => { snapshotFeedback(); decisionFeedback(); };  window.refreshDecisionStates = feedback;
   feedback();
 })();

@@ -118,6 +118,12 @@ class HostedLoadTests(unittest.TestCase):
         self.assertLess(source.index("<script"), source.index("</body>"))
         self.assertGreater(source.index("</body>"), source.index('src="desk-tools.js"'))
 
+    def test_decision_feedback_is_explicit_not_self_observing(self):
+        decision = Path("dashboard/decision-states.js").read_text(encoding="utf-8")
+        app = Path("dashboard/app.js").read_text(encoding="utf-8")
+        self.assertNotIn("MutationObserver", decision)
+        self.assertIn("window.refreshDecisionStates = feedback", decision)
+        self.assertIn("window.refreshDecisionStates?.()", app)
     def test_static_assets_are_cacheable_but_api_json_is_not(self):
         server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
