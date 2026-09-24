@@ -1,5 +1,197 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-24T04:55:09.775010+00:00",
-  "changes": []
+  "generated_at_utc": "2026-09-24T11:49:37.889854+00:00",
+  "changes": [
+    {
+      "field": "manager",
+      "old": {
+        "entry_name": "kokonut",
+        "points": 381,
+        "overall_rank": 68873,
+        "history": [
+          {
+            "event": 1,
+            "points": 44,
+            "total_points": 44,
+            "rank": 6124842,
+            "rank_sort": 6312456,
+            "overall_rank": 6124832,
+            "percentile_rank": 70,
+            "overall_rank_percentage": "69",
+            "bank": 0,
+            "value": 1000,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 3
+          },
+          {
+            "event": 2,
+            "points": 130,
+            "total_points": 174,
+            "rank": 35658,
+            "rank_sort": 36649,
+            "overall_rank": 362381,
+            "percentile_rank": 1,
+            "overall_rank_percentage": "4",
+            "bank": 5,
+            "value": 1002,
+            "event_transfers": 1,
+            "event_transfers_cost": 0,
+            "points_on_bench": 15
+          },
+          {
+            "event": 3,
+            "points": 47,
+            "total_points": 221,
+            "rank": 6992290,
+            "rank_sort": 7044921,
+            "overall_rank": 615163,
+            "percentile_rank": 70,
+            "overall_rank_percentage": "6",
+            "bank": 8,
+            "value": 1003,
+            "event_transfers": 1,
+            "event_transfers_cost": 0,
+            "points_on_bench": 3
+          },
+          {
+            "event": 4,
+            "points": 106,
+            "total_points": 327,
+            "rank": 51493,
+            "rank_sort": 54289,
+            "overall_rank": 89453,
+            "percentile_rank": 1,
+            "overall_rank_percentage": "0.8",
+            "bank": 1,
+            "value": 1005,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 12
+          },
+          {
+            "event": 5,
+            "points": 54,
+            "total_points": 381,
+            "rank": 3056265,
+            "rank_sort": 3142885,
+            "overall_rank": 68876,
+            "percentile_rank": 30,
+            "overall_rank_percentage": "0.6",
+            "bank": 1,
+            "value": 1012,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 20
+          }
+        ],
+        "chips": [
+          {
+            "name": "3xc",
+            "time": "2026-08-28T08:33:29.552298Z",
+            "event": 2
+          },
+          {
+            "name": "wildcard",
+            "time": "2026-09-07T13:30:27.956008Z",
+            "event": 4
+          }
+        ]
+      },
+      "new": {
+        "entry_name": "kokonut",
+        "points": 381,
+        "overall_rank": 68874,
+        "history": [
+          {
+            "event": 1,
+            "points": 44,
+            "total_points": 44,
+            "rank": 6124842,
+            "rank_sort": 6312456,
+            "overall_rank": 6124832,
+            "percentile_rank": 70,
+            "overall_rank_percentage": "69",
+            "bank": 0,
+            "value": 1000,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 3
+          },
+          {
+            "event": 2,
+            "points": 130,
+            "total_points": 174,
+            "rank": 35658,
+            "rank_sort": 36649,
+            "overall_rank": 362381,
+            "percentile_rank": 1,
+            "overall_rank_percentage": "4",
+            "bank": 5,
+            "value": 1002,
+            "event_transfers": 1,
+            "event_transfers_cost": 0,
+            "points_on_bench": 15
+          },
+          {
+            "event": 3,
+            "points": 47,
+            "total_points": 221,
+            "rank": 6992290,
+            "rank_sort": 7044921,
+            "overall_rank": 615163,
+            "percentile_rank": 70,
+            "overall_rank_percentage": "6",
+            "bank": 8,
+            "value": 1003,
+            "event_transfers": 1,
+            "event_transfers_cost": 0,
+            "points_on_bench": 3
+          },
+          {
+            "event": 4,
+            "points": 106,
+            "total_points": 327,
+            "rank": 51493,
+            "rank_sort": 54289,
+            "overall_rank": 89453,
+            "percentile_rank": 1,
+            "overall_rank_percentage": "0.8",
+            "bank": 1,
+            "value": 1005,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 12
+          },
+          {
+            "event": 5,
+            "points": 54,
+            "total_points": 381,
+            "rank": 3056265,
+            "rank_sort": 3142885,
+            "overall_rank": 68876,
+            "percentile_rank": 30,
+            "overall_rank_percentage": "0.6",
+            "bank": 1,
+            "value": 1012,
+            "event_transfers": 0,
+            "event_transfers_cost": 0,
+            "points_on_bench": 20
+          }
+        ],
+        "chips": [
+          {
+            "name": "3xc",
+            "time": "2026-08-28T08:33:29.552298Z",
+            "event": 2
+          },
+          {
+            "name": "wildcard",
+            "time": "2026-09-07T13:30:27.956008Z",
+            "event": 4
+          }
+        ]
+      }
+    }
+  ]
 }
