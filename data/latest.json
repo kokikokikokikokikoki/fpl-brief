@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-25T11:54:01.780607+00:00",
+  "generated_at_utc": "2026-09-25T17:14:36.322377+00:00",
   "team_id": 6572775,
   "league_id": 461748,
   "events": {
@@ -173,7 +173,7 @@
   "manager": {
     "entry_name": "kokonut",
     "points": 381,
-    "overall_rank": 68874,
+    "overall_rank": 68873,
     "history": [
       {
         "event": 1,

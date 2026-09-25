@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-25T11:54:01.780607+00:00 · squad snapshot GW5_
+_Snapshot 2026-09-25T17:14:36.322377+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
