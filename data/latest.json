@@ -1,6 +1,120 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-21T19:26:06.565600+00:00",
+  "generated_at_utc": "2026-09-25T12:39:54.313401+00:00",
+  "chip_rules": [
+    {
+      "id": 1,
+      "name": "wildcard",
+      "number": 1,
+      "start_event": 2,
+      "stop_event": 19,
+      "chip_type": "transfer",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 2,
+      "name": "wildcard",
+      "number": 1,
+      "start_event": 20,
+      "stop_event": 38,
+      "chip_type": "transfer",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 3,
+      "name": "freehit",
+      "number": 1,
+      "start_event": 2,
+      "stop_event": 19,
+      "chip_type": "transfer",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 4,
+      "name": "bboost",
+      "number": 1,
+      "start_event": 1,
+      "stop_event": 19,
+      "chip_type": "team",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 5,
+      "name": "3xc",
+      "number": 1,
+      "start_event": 1,
+      "stop_event": 19,
+      "chip_type": "team",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 6,
+      "name": "freehit",
+      "number": 1,
+      "start_event": 20,
+      "stop_event": 38,
+      "chip_type": "transfer",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 7,
+      "name": "bboost",
+      "number": 1,
+      "start_event": 20,
+      "stop_event": 38,
+      "chip_type": "team",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    },
+    {
+      "id": 8,
+      "name": "3xc",
+      "number": 1,
+      "start_event": 20,
+      "stop_event": 38,
+      "chip_type": "team",
+      "overrides": {
+        "rules": {},
+        "scoring": {},
+        "element_types": [],
+        "pick_multiplier": null
+      }
+    }
+  ],
   "team_id": 6572775,
   "league_id": 461748,
   "events": {
@@ -787,7 +901,7 @@
           "team_h": 1,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 5,
           "pulse_id": 0
         },
@@ -807,7 +921,7 @@
           "team_h_score": null,
           "stats": [],
           "team_h_difficulty": 3,
-          "team_a_difficulty": 4,
+          "team_a_difficulty": 3,
           "pulse_id": 0
         },
         {
@@ -863,7 +977,7 @@
           "team_h": 20,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -882,7 +996,7 @@
           "team_h": 16,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
+          "team_h_difficulty": 2,
           "team_a_difficulty": 4,
           "pulse_id": 0
         },
@@ -958,7 +1072,7 @@
           "team_h": 7,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 2,
           "pulse_id": 0
         }
@@ -1074,7 +1188,7 @@
           "team_h": 3,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1093,8 +1207,8 @@
           "team_h": 5,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
-          "team_a_difficulty": 3,
+          "team_h_difficulty": 2,
+          "team_a_difficulty": 4,
           "pulse_id": 0
         },
         {
@@ -1191,7 +1305,7 @@
           "team_h_score": null,
           "stats": [],
           "team_h_difficulty": 4,
-          "team_a_difficulty": 4,
+          "team_a_difficulty": 3,
           "pulse_id": 0
         },
         {
@@ -1247,7 +1361,7 @@
           "team_h": 6,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
+          "team_h_difficulty": 2,
           "team_a_difficulty": 4,
           "pulse_id": 0
         },
@@ -1266,7 +1380,7 @@
           "team_h": 8,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1304,7 +1418,7 @@
           "team_h": 14,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 4,
           "pulse_id": 0
         },
@@ -1342,7 +1456,7 @@
           "team_h": 20,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         }
@@ -1382,7 +1496,7 @@
           "team_h": 3,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1420,7 +1534,7 @@
           "team_h": 7,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 2,
           "pulse_id": 0
         },
@@ -1458,7 +1572,7 @@
           "team_h": 15,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 5,
           "pulse_id": 0
         },
@@ -1477,7 +1591,7 @@
           "team_h": 19,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
+          "team_h_difficulty": 2,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1497,7 +1611,7 @@
           "team_h_score": null,
           "stats": [],
           "team_h_difficulty": 2,
-          "team_a_difficulty": 4,
+          "team_a_difficulty": 3,
           "pulse_id": 0
         },
         {
@@ -1574,7 +1688,7 @@
           "team_h": 13,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
+          "team_h_difficulty": 2,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1612,7 +1726,7 @@
           "team_h": 10,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 3,
           "pulse_id": 0
         },
@@ -1651,7 +1765,7 @@
           "team_h_score": null,
           "stats": [],
           "team_h_difficulty": 3,
-          "team_a_difficulty": 3,
+          "team_a_difficulty": 4,
           "pulse_id": 0
         },
         {
@@ -1766,8 +1880,8 @@
           "team_h": 2,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
-          "team_a_difficulty": 4,
+          "team_h_difficulty": 3,
+          "team_a_difficulty": 3,
           "pulse_id": 0
         },
         {
@@ -1804,7 +1918,7 @@
           "team_h": 6,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 4,
           "pulse_id": 0
         },
@@ -1823,7 +1937,7 @@
           "team_h": 7,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 3,
+          "team_h_difficulty": 2,
           "team_a_difficulty": 2,
           "pulse_id": 0
         },
@@ -1880,7 +1994,7 @@
           "team_h": 11,
           "team_h_score": null,
           "stats": [],
-          "team_h_difficulty": 2,
+          "team_h_difficulty": 3,
           "team_a_difficulty": 2,
           "pulse_id": 0
         },

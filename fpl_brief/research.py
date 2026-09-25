@@ -9,7 +9,7 @@ from .storage import read_json
 FACT_LABELS = {"confirmed", "reported", "prediction", "unresolved"}
 COLLECTION_STATES = {"captured", "unavailable", "rejected"}
 VERIFICATION_STATES = {"unverified", "reviewed"}
-EXCERPT_KINDS = {"title", "description", "json_field"}
+EXCERPT_KINDS = {"title", "description", "json_field", "player_news"}
 
 
 def parse_time(value):
@@ -140,9 +140,21 @@ def validate_packet(packet):
             raise ValueError(f"source {index} state is invalid")
         if not isinstance(source["excerpts"], list) or len(source["excerpts"]) > 32:
             raise ValueError(f"source {index} excerpts are invalid")
+        if "omitted_excerpts" in source and (isinstance(source["omitted_excerpts"], bool) or not isinstance(source["omitted_excerpts"], int) or source["omitted_excerpts"] < 0):
+            raise ValueError(f"source {index} omitted excerpt count is invalid")
         for excerpt in source["excerpts"]:
             if not isinstance(excerpt, dict) or excerpt.get("kind") not in EXCERPT_KINDS or not isinstance(excerpt.get("text"), str) or len(excerpt["text"]) > 4096 or not parse_time(excerpt.get("captured_at_utc")):
                 raise ValueError(f"source {index} has an invalid excerpt")
+            player_id = excerpt.get("player_id")
+            if player_id is not None and (isinstance(player_id, bool) or not isinstance(player_id, int) or player_id < 1):
+                raise ValueError(f"source {index} has an invalid player ID")
+            for field in ("player_name", "team_name"):
+                value = excerpt.get(field)
+                if value is not None and (not isinstance(value, str) or len(value) > 160):
+                    raise ValueError(f"source {index} has invalid player attribution")
+            team_id = excerpt.get("team_id")
+            if team_id is not None and (isinstance(team_id, bool) or not isinstance(team_id, int) or team_id < 1):
+                raise ValueError(f"source {index} has an invalid team ID")
         if not isinstance(source["claims"], list):
             raise ValueError(f"source {index} claims are invalid")
         for claim in source["claims"]:
@@ -172,26 +184,71 @@ def evidence_status(packet, stale_after_hours=24, now=None):
         return {"state": "invalid", "valid": False, "stale": True, "sources": 0, "facts": 0, "captured": 0, "unavailable": 0, "rejected": 0, "unverified": 0, "warnings": [str(error)], "packet": packet}
     current = now or datetime.now(timezone.utc)
     sources = packet["sources"]
-    successful = [source for source in sources if source["collection_state"] == "captured" and source["last_success_at_utc"]]
+    successful = [source for source in sources if parse_time(source["last_success_at_utc"])]
     stale_sources = [source for source in successful if (current - parse_time(source["last_success_at_utc"])).total_seconds() > stale_after_hours * 3600]
+    fresh_successful = [source for source in successful if source not in stale_sources]
     captured = sum(source["collection_state"] == "captured" for source in sources)
     unavailable = sum(source["collection_state"] == "unavailable" for source in sources)
     rejected = sum(source["collection_state"] == "rejected" for source in sources)
     claims = [claim for source in sources for claim in source["claims"]]
+    usable_items = sum(bool(excerpt["text"].strip()) for source in sources for excerpt in source["excerpts"]) + sum(bool(claim["claim"].strip()) for claim in claims)
+    stale_after_seconds = stale_after_hours * 3600
+    def is_stale_time(value):
+        return (current - parse_time(value)).total_seconds() > stale_after_seconds
+    fresh_usable_items = sum(bool(excerpt["text"].strip()) and not is_stale_time(excerpt["captured_at_utc"]) for source in sources for excerpt in source["excerpts"]) + sum(bool(claim["claim"].strip()) and not is_stale_time(claim["retrieved_at_utc"]) for source in sources for claim in source["claims"])
+    stale_usable_items = sum(bool(excerpt["text"].strip()) and is_stale_time(excerpt["captured_at_utc"]) for source in sources for excerpt in source["excerpts"]) + sum(bool(claim["claim"].strip()) and is_stale_time(claim["retrieved_at_utc"]) for source in sources for claim in source["claims"])
     unverified = sum(source["verification_status"] != "reviewed" for source in sources) + sum(claim["verification_status"] != "reviewed" for claim in claims)
     warnings = list(packet.get("warnings", []))
     if not successful:
         warnings.append("No source has a successful retrieval.")
     if successful and len(stale_sources) == len(successful):
         warnings.append(f"All successful research evidence is older than {stale_after_hours} hours.")
+    if fresh_successful and not fresh_usable_items:
+        warnings.append("Recently successful sources contain no fresh, usable evidence items.")
+    if fresh_successful and not fresh_usable_items and stale_usable_items:
+        warnings.append("No fresh usable evidence is available; retained research items are stale.")
+    if not successful and sources:
+        warnings.append("The latest collection has no successful source; evidence is unavailable.")
     if unavailable:
         warnings.append(f"{unavailable} source collection result(s) are unavailable.")
     if rejected:
         warnings.append(f"{rejected} source collection result(s) were rejected.")
-    source_summaries = [{"id": source["id"], "state": source["collection_state"], "last_success_at_utc": source["last_success_at_utc"], "stale": source not in successful or source in stale_sources} for source in sources]
-    return {"state": "ready" if successful else "empty", "valid": True, "stale": not successful or len(stale_sources) == len(successful),
+    source_summaries = []
+    for source in sources:
+        stale_excerpt_indexes = [index for index, excerpt in enumerate(source["excerpts"])
+                                 if excerpt["text"].strip() and is_stale_time(excerpt["captured_at_utc"])]
+        stale_claim_indexes = [index for index, claim in enumerate(source["claims"])
+                               if claim["claim"].strip() and is_stale_time(claim["retrieved_at_utc"])]
+        source_summaries.append({"id": source["id"], "title": source["title"], "publisher": source["publisher"],
+                                 "state": source["collection_state"], "last_success_at_utc": source["last_success_at_utc"],
+                                 "attempted_at_utc": source.get("attempted_at_utc"),
+                                 "omitted_excerpts": source.get("omitted_excerpts", 0),
+                                 "stale_excerpt_indexes": stale_excerpt_indexes,
+                                 "stale_claim_indexes": stale_claim_indexes,
+                                 "stale": bool(stale_excerpt_indexes or stale_claim_indexes) or source in stale_sources})
+    latest_success_at = max((parse_time(source["last_success_at_utc"]) for source in successful), default=None)
+    usable_capture_times = [parse_time(excerpt["captured_at_utc"]) for source in sources for excerpt in source["excerpts"] if excerpt["text"].strip()]
+    usable_capture_times.extend(parse_time(claim["retrieved_at_utc"]) for source in sources for claim in source["claims"] if claim["claim"].strip())
+    latest_evidence_at = max(usable_capture_times, default=None)
+    research_age_hours = round(max(0, (current - latest_evidence_at).total_seconds() / 3600), 1) if latest_evidence_at else None
+    if not successful:
+        state = "failed" if sources else "empty"
+    elif fresh_usable_items:
+        state = "ready"
+    elif stale_usable_items or not fresh_successful:
+        state = "stale"
+    else:
+        state = "empty"
+    return {"state": state, "valid": True, "stale": state in {"failed", "stale"},
             "sources": len(sources), "facts": len(claims), "captured": captured, "unavailable": unavailable, "rejected": rejected,
-            "unverified": unverified, "source_summaries": source_summaries, "warnings": list(dict.fromkeys(warnings)), "packet": packet}
+            "unverified": unverified, "generated_at_utc": packet["generated_at_utc"],
+            "last_collection_at_utc": packet["collector"]["last_run_at_utc"],
+            "latest_success_at_utc": latest_success_at.isoformat() if latest_success_at else None,
+            "latest_evidence_at_utc": latest_evidence_at.isoformat() if latest_evidence_at else None,
+            "research_age_hours": research_age_hours,
+            "usable_items": usable_items, "fresh_usable_items": fresh_usable_items,
+            "omitted_excerpts": sum(source.get("omitted_excerpts", 0) for source in sources),
+            "source_summaries": source_summaries, "warnings": list(dict.fromkeys(warnings)), "packet": packet}
 
 
 def main():

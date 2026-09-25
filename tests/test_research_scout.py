@@ -80,14 +80,17 @@ class ScoutTests(unittest.TestCase):
             self.assertEqual(result[2], "response_too_large")
 
     def test_exact_fpl_bootstrap_captures_only_verbatim_news_excerpts(self):
-        payload = {"elements": [{"id": 11, "web_name": "Player Identity", "news": "Exact injury wording."}, {"id": 12, "news": "  Another exact note.  "}, {"id": 13, "news": ""}]}
+        payload = {"elements": [{"id": 11, "web_name": "Player Identity", "team": 3, "news": "Exact injury wording."}, {"id": 12, "news": "  Another exact note.  "}, {"id": 13, "news": ""}], "teams": [{"id": 3, "name": "Example Club"}]}
         packet = collect({"research_sources": [source_config()]}, None, FakeOpener([FakeResponse(json.dumps(payload).encode(), "application/json")]), now=NOW)
         source = packet["sources"][0]
         self.assertEqual([item["text"] for item in source["excerpts"]], ["Exact injury wording.", "  Another exact note.  "])
-        self.assertTrue(all(item["kind"] == "json_field" and item["captured_at_utc"] == NOW for item in source["excerpts"]))
+        self.assertTrue(all(item["kind"] == "player_news" and item["captured_at_utc"] == NOW for item in source["excerpts"]))
+        self.assertEqual(source["excerpts"][0]["player_name"], "Player Identity")
+        self.assertEqual(source["excerpts"][0]["team_name"], "Example Club")
+        self.assertEqual(source["title"], "Official FPL player news")
         self.assertEqual(source["claims"], [])
         serialized = json.dumps(source)
-        self.assertNotIn("Player Identity", serialized)
+        self.assertIn("Player Identity", serialized)
         self.assertNotIn("web_name", serialized)
     def test_bootstrap_news_overflow_is_capped_at_schema_limit(self):
         payload = {"elements": [{"id": index, "web_name": "Identity %s" % index, "news": "News %s" % index} for index in range(MAX_EXCERPTS + 1)]}
@@ -97,9 +100,58 @@ class ScoutTests(unittest.TestCase):
         self.assertEqual(source["excerpts"][0]["text"], "News 0")
         self.assertEqual(source["excerpts"][-1]["text"], "News 31")
         self.assertEqual(source["claims"], [])
+        self.assertEqual(source["omitted_excerpts"], 1)
         serialized = json.dumps(source)
-        self.assertNotIn("Identity ", serialized)
+        self.assertIn("Identity ", serialized)
         self.assertNotIn("web_name", serialized)
+
+    def test_fpl_news_joins_stable_player_and_team_identity(self):
+        payload = {"elements": [{"id": 42, "web_name": "Known Player", "team": 7, "news": "Exact player news."}], "teams": [{"id": 7, "name": "Known Club"}]}
+        packet = collect({"research_sources": [source_config()]}, None, FakeOpener([FakeResponse(json.dumps(payload).encode(), "application/json")]), now=NOW)
+        source = packet["sources"][0]
+        self.assertEqual(source["title"], "Official FPL player news")
+        self.assertEqual(source["excerpts"][0]["kind"], "player_news")
+        self.assertEqual(source["excerpts"][0]["player_id"], 42)
+        self.assertEqual(source["excerpts"][0]["player_name"], "Known Player")
+        self.assertEqual(source["excerpts"][0]["team_name"], "Known Club")
+
+    def test_fpl_news_prioritizes_squad_items_before_cap_and_reports_omissions(self):
+        elements = [{"id": index, "web_name": "Player %s" % index, "team": 1, "news": "News %s" % index} for index in range(1, MAX_EXCERPTS + 3)]
+        payload = {"elements": elements, "teams": [{"id": 1, "name": "Club"}]}
+        packet = collect({"research_sources": [source_config()]}, None, FakeOpener([FakeResponse(json.dumps(payload).encode(), "application/json")]), now=NOW, priority_player_ids={MAX_EXCERPTS + 2})
+        source = packet["sources"][0]
+        self.assertEqual(len(source["excerpts"]), MAX_EXCERPTS)
+        self.assertEqual(source["excerpts"][0]["player_id"], MAX_EXCERPTS + 2)
+        self.assertEqual(source["omitted_excerpts"], 2)
+
+    def test_fpl_news_without_reliable_identity_remains_unlinked(self):
+        payload = {"elements": [{"id": 42, "news": "Exact but unlinked news."}], "teams": []}
+        packet = collect({"research_sources": [source_config()]}, None, FakeOpener([FakeResponse(json.dumps(payload).encode(), "application/json")]), now=NOW)
+        excerpt = packet["sources"][0]["excerpts"][0]
+        self.assertEqual(excerpt["player_id"], 42)
+        self.assertIsNone(excerpt["player_name"])
+        self.assertIsNone(excerpt["team_name"])
+
+    def test_successful_recollection_updates_last_attempt_timestamp(self):
+        old_attempt = (datetime.fromisoformat(NOW) - timedelta(hours=1)).isoformat()
+        prior = {
+            "schema_version": 2, "generated_at_utc": old_attempt,
+            "collector": {"version": "v1", "last_run_at_utc": old_attempt},
+            "sources": [{
+                "id": "official-fpl-news", "publisher": "Fantasy Premier League",
+                "url": source_config()["url"], "title": None, "retrieved_at_utc": None,
+                "last_success_at_utc": None, "collection_state": "unavailable",
+                "verification_status": "unverified", "excerpts": [], "claims": [],
+                "attempted_at_utc": old_attempt,
+                "error": {"code": "request_failed", "message": "Source was not captured."},
+            }], "warnings": [],
+        }
+        body = json.dumps({"elements": [], "teams": []}).encode()
+        result = collect({"research_sources": [source_config()]}, prior,
+                         FakeOpener([FakeResponse(body, "application/json")]), now=NOW)
+        self.assertEqual(result["sources"][0]["collection_state"], "captured")
+        self.assertEqual(result["sources"][0]["attempted_at_utc"], NOW)
+
     def test_fetch_extracts_only_bounded_verbatim_metadata(self):
         title, excerpts = extract_metadata(b"<title>  News </title><meta name='description' content='Exact source text'>", "text/html", NOW)
         self.assertEqual(title, "News")
@@ -183,8 +235,8 @@ class ScoutTests(unittest.TestCase):
         packet = collect({"research_sources": [unsafe]}, None, FakeOpener([]), now=NOW)
         self.assertIsNone(packet["sources"][0]["url"])
         self.assertTrue(evidence_status(packet)["valid"])
-        desk = Path("dashboard/desk-tools.js").read_text(encoding="utf-8")
-        self.assertIn('state !== "rejected"', desk)
+        desk = Path("dashboard/desk-tools.ts").read_text(encoding="utf-8")
+        self.assertIn('sourceState !== "rejected"', desk)
         self.assertIn("/^https:", desk)
 
     def test_reviewed_claim_requires_text_reviewer_and_times(self):

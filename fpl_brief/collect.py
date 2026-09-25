@@ -79,6 +79,7 @@ def collect(client, config):
     fixtures = client.get("fixtures/")
     snapshot = {
         "schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "chip_rules": boot.get("chips"),
         "team_id": team_id, "league_id": league_id, "events": summary,
         "manager": {"entry_name": entry.get("name"), "points": entry.get("summary_overall_points"), "overall_rank": entry.get("summary_overall_rank"), "history": history.get("current", []), "chips": history.get("chips", [])},
         "squad_snapshot": {"event_id": user_picks.get("entry_history", {}).get("event"), "picks": user_picks.get("picks", []), "bank": user_picks.get("entry_history", {}).get("bank")},

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPL Brief · Matchday Cockpit (mockup C)</title>
+<!--
+THESIS: Before a deadline the manager cross-checks six calm instruments, then looks down at the team. Refuses the hero-metric card row.
+OWN-WORLD: Matte black instrument panel, near-black dial faces with luminous white ticks and numerals, pale-green needles, amber and red only as caution lamps; kits sit on a dark pitch lit from above.
+STORY: Sweep the six gauges (deadline, transfers, bank, XI estimate, league, Bench Boost), then check the suggested XI and what changes, then act.
+FIRST VIEWPORT: Two ranked rows of three gauges across the top; below, the XI on a dark pitch with a changes/captain placard column.
+FORM: Fused challenger (night-flight instrument six-pack × matchday). Seed 2ba8e144.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --panel: #0C0E10; --panel-2: #14171A; --face: #07090A; --tick: #EEF2EF; --dim: #A3ADA7; --needle: #9BE8B5; --amber: #F2B84B; --red: #F07466; --rim: #2A2F33; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--panel); color: var(--tick); font: 16px/1.5 "Saira Semi Condensed", system-ui, sans-serif; }
+  .mock-flag { position: fixed; right: 12px; bottom: 12px; z-index: 9; padding: 6px 10px; border-radius: 6px; background: var(--tick); color: var(--panel); font-size: 12px; font-weight: 600; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 14px clamp(16px, 3vw, 36px); border-bottom: 1px solid var(--rim); }
+  .brand { font-weight: 800; font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
+  nav { display: flex; flex-wrap: wrap; gap: 4px; margin-right: auto; }
+  nav a { padding: 8px 12px; border-radius: 6px; color: var(--dim); font-weight: 600; text-decoration: none; }
+  nav a[aria-current="page"] { color: var(--tick); background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--needle); }
+  nav a:focus-visible, button:focus-visible { outline: 3px solid var(--needle); outline-offset: 2px; }
+  main { padding: 22px clamp(16px, 3vw, 36px) 44px; }
+  h1 { margin: 0 0 16px; font-size: clamp(30px, 3.4vw, 44px); font-weight: 800; letter-spacing: -.01em; line-height: 1; }
+  h1 span { color: var(--dim); font-weight: 600; }
+  .six { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 26px; }
+  .gauge { display: grid; grid-template-columns: 116px minmax(0, 1fr); align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--rim); border-radius: 16px; background: linear-gradient(180deg, #121518, #0D0F11); box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%), 0 6px 14px rgb(0 0 0 / 45%); }
+  .gauge svg { width: 116px; height: 116px; }
+  .gauge .needle { transform-origin: 60px 60px; transition: transform 1.6s cubic-bezier(.34, 1.56, .64, 1); }
+  .gauge h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .gauge b { display: block; font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .gauge p { margin: 2px 0 0; color: var(--dim); font-size: 14px; }
+  .lamp { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; background: #3A4046; vertical-align: 1px; }
+  .lamp.amber { background: var(--amber); } .lamp.red { background: var(--red); } .lamp.ok { background: var(--needle); }
+  .deck { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .85fr); gap: 18px; align-items: start; }
+  .pitch { position: relative; aspect-ratio: 68 / 76; border-radius: 18px; background: radial-gradient(90% 60% at 50% 0%, #1B3A2B, #0F2219 60%, #0A1812); border: 1px solid #1F3A2C; overflow: hidden; }
+  .pitch svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .row { position: absolute; left: 3%; right: 3%; display: flex; justify-content: space-evenly; transform: translateY(-50%); }
+  .kit { position: relative; display: grid; justify-items: center; gap: 3px; width: 118px; border: 0; background: none; color: var(--tick); font: inherit; cursor: pointer; }
+  .kit .jersey { width: 78px; height: 78px; filter: drop-shadow(0 6px 6px rgb(0 0 0 / 55%)); transition: transform .4s cubic-bezier(.16, 1, .3, 1); }
+  .kit:hover .jersey, .kit[aria-pressed="true"] .jersey { transform: translateY(-4px); }
+  .kit .pname { padding: 1px 8px; border-radius: 5px; background: rgb(7 9 10 / 82%); font-size: 15px; font-weight: 700; white-space: nowrap; }
+  .kit .est { font-size: 13px; color: var(--needle); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kit .arm { position: absolute; top: 4px; right: 18px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--tick); color: var(--panel); font-size: 13px; font-weight: 800; }
+  .kit .arm.v { background: #59646B; color: var(--tick); }
+  .kit.flagged .pname { box-shadow: inset 0 -2px 0 var(--amber); }
+  .bench { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; margin-top: 12px; padding: 12px 8px; border: 1px solid var(--rim); border-radius: 14px; background: var(--panel-2); }
+  .bench .slot { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--dim); }
+  .placard { padding: 18px 20px; border: 1px solid var(--rim); border-radius: 16px; background: var(--panel-2); }
+  .placard h2 { margin: 0 0 2px; font-size: 24px; font-weight: 800; }
+  .placard .src { margin: 0 0 12px; color: var(--dim); font-size: 14px; }
+  .placard section { padding: 12px 0; border-top: 1px solid var(--rim); }
+  .placard h3 { margin: 0 0 6px; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .delta { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 17px; font-weight: 600; }
+  .delta i { font-style: normal; min-width: 42px; padding: 1px 6px; border-radius: 4px; text-align: center; font-size: 13px; font-weight: 800; }
+  .delta .in { background: var(--needle); color: #062212; } .delta .out { background: #3A4046; color: var(--tick); } .delta .cap { background: var(--tick); color: var(--panel); }
+  .placard p { margin: 4px 0 0; color: #D3D9D5; font-size: 15px; }
+  .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 15px; }
+  .detail dt { color: var(--dim); } .detail dd { margin: 0; font-weight: 600; }
+  .ask { width: 100%; margin-top: 14px; padding: 14px; border: 1px solid var(--needle); border-radius: 12px; background: transparent; color: var(--needle); font: 700 17px/1 "Saira Semi Condensed", sans-serif; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+  .ask:hover { background: rgb(155 232 181 / 10%); }
+  .fine { color: var(--dim) !important; font-size: 13px !important; }
+  @media (max-width: 1100px) { .six { grid-template-columns: repeat(2, minmax(0, 1fr)); } .deck { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+    nav a { white-space: nowrap; }
+    .six { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .gauge { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 12px 8px; }
+    .gauge svg { width: 88px; height: 88px; }
+    .gauge b { font-size: 26px; }
+    .kit { width: 78px; } .kit .jersey { width: 50px; height: 50px; }
+    .kit .pname { font-size: 12px; padding: 1px 4px; } .kit .est { font-size: 11px; }
+    .kit .arm { top: 0; right: 6px; width: 20px; height: 20px; font-size: 11px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .gauge .needle { transition: none; } }
+</style>
+</head>
+<body>
+<div class="mock-flag">Mockup C · real GW6 data · kit colours illustrative</div>
+<header>
+  <div class="brand">FPL Brief</div>
+  <nav aria-label="Sections"><a href="#">This week</a><a href="#" aria-current="page">Lineup</a><a href="#">Transfers</a><a href="#">Rivals</a><a href="#">Players</a><a href="#">News</a></nav>
+</header>
+<main>
+  <h1>Gameweek <span id="gw"></span> · <span>pre-deadline check</span></h1>
+  <div class="six" id="six"></div>
+  <div class="deck">
+    <section aria-labelledby="xi-title">
+      <h2 id="xi-title" style="position:absolute;left:-9999px">Suggested starting eleven</h2>
+      <div class="pitch" id="pitch">
+        <svg class="lines" viewBox="0 0 68 76" preserveAspectRatio="none" aria-hidden="true"><g fill="none" stroke="rgb(238 242 239 / 16%)" stroke-width=".3"><rect x="2" y="2" width="64" height="72"/><rect x="16" y="2" width="36" height="12"/><rect x="26" y="2" width="16" height="5"/><path d="M27 14 A7 7 0 0 0 41 14"/><circle cx="34" cy="76" r="9"/></g></svg>
+      </div>
+      <div class="bench" id="bench"></div>
+    </section>
+    <aside class="placard" aria-labelledby="changes-title">
+      <h2 id="changes-title">Changes to make</h2>
+      <p class="src" id="source"></p>
+      <section><h3>Lineup</h3><div id="changes"></div></section>
+      <section><h3>Armband</h3><div id="armband"></div></section>
+      <section class="detail" aria-live="polite"><h3>Selected</h3><div id="detail"><p>Select any kit for its reason, form and price.</p></div></section>
+      <button class="ask" type="button">Ask Jev about this lineup</button>
+      <p class="fine">Estimates are FPL's own next-round figures, not a forecast by this app.</p>
+    </aside>
+  </div>
+</main>
+<script src="kits.js"></script>
+<script src="data.js"></script>
+<script>
+  const d = window.GW6;
+  const all = [...Object.values(d.lines).flat(), ...d.bench];
+  const byId = new Map(all.map((p) => [p.id, p]));
+  document.getElementById("gw").textContent = d.gw;
+  document.getElementById("source").textContent = `Against ${d.changes.source}.`;
+  const c = countdown(d.deadline);
+  const hoursLeft = c.d * 24 + c.h;
+  const benchTotal = Number((d.bb.match(/total ([\d.]+)/) || [])[1] || 0);
+  // value in 0..1 along a 240° sweep
+  const gauges = [
+    { name: "Deadline", value: Math.min(hoursLeft / (14 * 24), 1), big: c.passed ? "Passed" : `${c.d}d ${c.h}h`, note: "until GW" + d.gw + " locks", lamp: hoursLeft < 24 ? "red" : hoursLeft < 72 ? "amber" : "ok", ticks: ["0", "7d", "14d"] },
+    { name: "Free transfers", value: d.account.ft / 5, big: d.account.ft, note: `−${d.account.hit} pts per extra`, lamp: "ok", ticks: ["0", "", "5"] },
+    { name: "Bank", value: Math.min(d.account.bank / 50, 1), big: money(d.account.bank), note: `team value ${money(d.account.value)}`, lamp: d.account.bank < 5 ? "amber" : "ok", ticks: ["0", "", "£5m"] },
+    { name: "XI FPL estimate", value: Math.min(d.total / 100, 1), big: d.total, note: `${d.formation}, FPL's own figures`, lamp: "ok", ticks: ["0", "50", "100"] },
+    { name: "League", value: 1 - (d.league - 1) / 101, big: `${d.league}rd`, note: `${d.gap} pts behind leader`, lamp: "ok", ticks: ["102", "", "1st"] },
+    { name: "Bench Boost", value: Math.min(benchTotal / 24, 1), big: benchTotal, note: "bench estimate, 12+ rule", lamp: d.bb.startsWith("Worth") ? "ok" : "amber", ticks: ["0", "12", "24"] },
+  ];
+  const arc = (v) => { const a = (-210 + 240 * v) * Math.PI / 180; return [60 + 46 * Math.cos(a), 60 + 46 * Math.sin(a)]; };
+  const dial = (g) => {
+    const ticks = Array.from({ length: 13 }, (_, i) => { const a = (-210 + 20 * i) * Math.PI / 180; const r1 = i % 6 === 0 ? 38 : 42; return `<line x1="${60 + r1 * Math.cos(a)}" y1="${60 + r1 * Math.sin(a)}" x2="${60 + 48 * Math.cos(a)}" y2="${60 + 48 * Math.sin(a)}" stroke="#EEF2EF" stroke-width="${i % 6 === 0 ? 2 : 1}"/>`; }).join("");
+    const labels = g.ticks.map((t, i) => { const [x, y] = arc(i / 2); const lx = 60 + (x - 60) * .62, ly = 60 + (y - 60) * .62; return t ? `<text x="${lx}" y="${ly + 3}" fill="#A3ADA7" font-size="9" text-anchor="middle">${t}</text>` : ""; }).join("");
+    return `<svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="56" fill="#07090A" stroke="#2A2F33" stroke-width="2"/>${ticks}${labels}<g class="needle" data-v="${g.value}" style="transform:rotate(0deg)"><line x1="60" y1="60" x2="60" y2="18" stroke="#9BE8B5" stroke-width="3" stroke-linecap="round" transform="rotate(-120 60 60)"/></g><circle cx="60" cy="60" r="6" fill="#EEF2EF"/></svg>`;
+  };
+  document.getElementById("six").innerHTML = gauges.map((g) => `<article class="gauge">${dial(g)}<div><h2><span class="lamp ${g.lamp}"></span>${g.name}</h2><b>${esc(g.big)}</b><p>${esc(g.note)}</p></div></article>`).join("");
+  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll(".needle").forEach((n) => { n.style.transform = `rotate(${240 * Number(n.dataset.v)}deg)`; })));
+
+  const kit = (p, keeper) => {
+    const arm = p.id === d.captain ? '<span class="arm">C</span>' : p.id === d.vice ? '<span class="arm v">V</span>' : "";
+    const flagged = p.flags.some((f) => f.startsWith("doubtful")) || p.blockers.length;
+    return `<button class="kit${flagged ? " flagged" : ""}" type="button" data-id="${p.id}" aria-pressed="false">${jersey(p.team, { keeper, outline: "rgba(0,0,0,.6)" })}${arm}<span class="pname">${esc(p.name)}</span><span class="est">${p.est} est.</span></button>`;
+  };
+  const pitch = document.getElementById("pitch");
+  for (const [role, top] of Object.entries({ FWD: 17, MID: 42, DEF: 67, GK: 89 })) pitch.insertAdjacentHTML("beforeend", `<div class="row" style="top:${top}%">${d.lines[role].map((p) => kit(p, role === "GK")).join("")}</div>`);
+  document.getElementById("bench").innerHTML = d.bench.map((p, i) => `<div style="display:grid;justify-items:center"><span class="slot">${i === 0 ? "GK" : "BENCH " + i}</span>${kit(p, i === 0)}</div>`).join("");
+  const ch = d.changes;
+  document.getElementById("changes").innerHTML = ch.start.map((n) => `<div class="delta"><i class="in">IN</i>${esc(n)}</div>`).join("") + ch.bench.map((n) => `<div class="delta"><i class="out">OUT</i>${esc(n)}</div>`).join("") + (ch.bench_order_changed ? "<p>Bench order changes too.</p>" : "");
+  document.getElementById("armband").innerHTML = `<div class="delta"><i class="cap">C</i>${esc(ch.captain.from)} → ${esc(ch.captain.to)}</div><div class="delta"><i class="out">V</i>${esc(ch.vice.from)} → ${esc(ch.vice.to)}</div><p>${esc(byId.get(d.captain).name)} carries the XI's top FPL estimate (${byId.get(d.captain).est}).</p>`;
+  document.addEventListener("click", (event) => {
+    const b = event.target.closest(".kit");
+    if (!b) return;
+    document.querySelectorAll(".kit[aria-pressed=true]").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    b.setAttribute("aria-pressed", "true");
+    const p = byId.get(Number(b.dataset.id));
+    const status = p.blockers.length ? p.blockers.join(", ") : p.flags.length ? p.flags.join(", ") : "Available";
+    document.getElementById("detail").innerHTML = `<p style="font-size:22px;font-weight:800;color:var(--tick)">${esc(p.name)}</p><dl><dt>Role</dt><dd>${esc(p.role)} · ${esc(p.team)}</dd><dt>FPL est.</dt><dd>${p.est} pts</dd><dt>Form</dt><dd>${esc(p.form)}</dd><dt>Price</dt><dd>${money(p.price)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${p.news ? `<dt>FPL note</dt><dd>${esc(p.news)}</dd>` : ""}</dl>`;
+  });
+</script>
+</body>
+</html>

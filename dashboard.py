@@ -2,6 +2,7 @@
 """Local, read-only dashboard for the FPL Brief snapshot."""
 
 import json
+import math
 import mimetypes
 import os
 import subprocess
@@ -16,14 +17,27 @@ from urllib.parse import parse_qs, unquote, urlparse
 from fpl_brief.config import load as load_config
 from fpl_brief.decision import assess, snapshot_freshness
 from fpl_brief.candidates import lens
+from fpl_brief import lineup as lineup_helper
+from fpl_brief import private_team
 from fpl_brief.research import evidence_status, load_packet
 from fpl_brief.storage import read_json
 
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "dashboard"
+STATIC_DIST = STATIC / "dist"
 LOCAL = ROOT / "local"
+PRIVATE_TEAM = LOCAL / "private_team.json"
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 JOBS = {}
 MAX_PLANS = 4
+MISSING_BUNDLE_MESSAGE = (
+    "Dashboard frontend bundle is missing (dashboard/dist/index.html).\n"
+    "Build it with: npm ci --prefix dashboard && npm run build --prefix dashboard\n"
+    "The JSON API under /api/ is still available.\n"
+)
 
 
 def default_plans(snapshot):
@@ -67,8 +81,345 @@ def validate_plan(plan, catalog):
         raise ValueError("Scenario includes player IDs that are not in the current FPL catalog")
 
 
-def research_result(config):
-    return evidence_status(load_packet(ROOT / "data" / "research_packet.json"), config["research_stale_after_hours"])
+def research_result(config, snapshot=None, now=None):
+    snapshot = snapshot if snapshot is not None else read_json(ROOT / "data" / "latest.json", default=None)
+    result = evidence_status(load_packet(ROOT / "data" / "research_packet.json"), config["research_stale_after_hours"], now)
+    result["snapshot_status"] = snapshot_status(snapshot, config, now)
+    return result
+
+
+CHIP_LABELS = {
+    "wildcard": "Wildcard", "wildcard2": "Wildcard",
+    "freehit": "Free Hit", "freehit2": "Free Hit",
+    "bboost": "Bench Boost", "bboost2": "Bench Boost",
+    "3xc": "Triple Captain", "3xc2": "Triple Captain",
+}
+CHIP_ORDER = ("Wildcard", "Free Hit", "Bench Boost", "Triple Captain")
+PLAYER_STATUS = {
+    "a": "Available", "d": "Doubtful", "i": "Injured", "s": "Suspended",
+    "u": "Unavailable", "n": "Not in FPL",
+}
+
+
+def _chip_key(*values):
+    for value in values:
+        if isinstance(value, str) and value.strip().lower() in CHIP_LABELS:
+            return CHIP_LABELS[value.strip().lower()]
+    return None
+
+
+def _unknown_chip_label(rule, ordinal=None):
+    """Return a stable display label for an official rule we cannot interpret."""
+    raw_name = rule.get("name") if isinstance(rule, dict) else None
+    if isinstance(raw_name, str) and raw_name.strip():
+        return " ".join(raw_name.split())[:80]
+    identifier = rule.get("id") if isinstance(rule, dict) else None
+    if isinstance(identifier, int) and not isinstance(identifier, bool) and identifier > 0:
+        return f"Unrecognized chip (ID {identifier})"
+    if isinstance(ordinal, int) and not isinstance(ordinal, bool) and ordinal > 0:
+        return f"Unrecognized official chip rule (rule {ordinal})"
+    return "Unrecognized official chip rule"
+
+
+def _finite_number(value):
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def chip_ledger(snapshot, stale=False):
+    """Reconcile official bootstrap chip windows with recorded manager plays."""
+    definitions = snapshot.get("chip_rules") if isinstance(snapshot, dict) else None
+    manager = snapshot.get("manager") if isinstance(snapshot, dict) else None
+    plays = manager.get("chips") if isinstance(manager, dict) else None
+    normalized_plays = {name: [] for name in CHIP_ORDER}
+    official_unknown_names = {}
+    official_unknown_labels = []
+    if isinstance(definitions, list):
+        for rule_index, rule in enumerate(definitions, start=1):
+            if not isinstance(rule, dict) or _chip_key(rule.get("name")) or _chip_key(rule.get("id")):
+                continue
+            raw_name = rule.get("name")
+            safe_name = _unknown_chip_label(rule, rule_index)
+            official_unknown_labels.append(safe_name)
+            if isinstance(raw_name, str) and raw_name.strip():
+                official_unknown_names[raw_name.strip().lower()] = safe_name
+            normalized_plays.setdefault(safe_name, [])
+    history_unknown = False
+    if isinstance(plays, list):
+        for play in plays:
+            label = _chip_key(play.get("name")) if isinstance(play, dict) else None
+            if label is None and isinstance(play, dict) and isinstance(play.get("name"), str):
+                label = official_unknown_names.get(play["name"].strip().lower())
+            gameweek = play.get("event") if isinstance(play, dict) else None
+            if label is None or isinstance(gameweek, bool) or not isinstance(gameweek, int) or not 1 <= gameweek <= 38:
+                history_unknown = True
+                continue
+            normalized_plays[label].append(gameweek)
+
+    unavailable_reason = (
+        "FPL snapshot is stale; recorded plays are shown from this snapshot, but availability is unknown."
+        if stale else "Official chip rules are missing or invalid; recorded plays are shown from this snapshot, but availability is unknown."
+    )
+
+    def unknown_rows(reason):
+        rows = []
+        labels = [*CHIP_ORDER, *dict.fromkeys(official_unknown_labels)]
+        for label in labels:
+            used = sorted(normalized_plays.get(label, []))
+            row_reason = reason
+            if len(used) != len(set(used)):
+                row_reason = "Duplicate plays appear in manager history; availability is unknown."
+            rows.append({"name": label, "state": "unknown", "used_count": len(used),
+                         "used_gameweeks": used, "used_source": "recorded in snapshot" if used else "",
+                         "reason": row_reason})
+        if history_unknown:
+            rows.append({"name": "Unrecognized recorded chip", "state": "unknown",
+                         "reason": "Manager history contains a chip or gameweek that cannot be safely identified."})
+        return rows
+
+    if stale or not isinstance(definitions, list) or not definitions or not isinstance(plays, list):
+        reason = unavailable_reason if isinstance(plays, list) else "Manager chip history is unavailable; availability is unknown."
+        rows = unknown_rows(reason)
+        state = "partial" if any(row.get("used_count", 0) for row in rows) or history_unknown else "unknown"
+        return {"state": state, "reason": unavailable_reason, "chips": rows}
+    event_meta = snapshot.get("events") if isinstance(snapshot.get("events"), dict) else {}
+    event = event_meta.get("next") or event_meta.get("current")
+    current_gw = event.get("id") if isinstance(event, dict) else None
+    if isinstance(current_gw, bool) or not isinstance(current_gw, int) or not 1 <= current_gw <= 38:
+        reason = "Recorded plays are shown from this snapshot; current chip availability cannot be determined."
+        rows = unknown_rows(reason)
+        return {"state": "partial" if any(row.get("used_count", 0) for row in rows) else "unknown",
+                "reason": "The next relevant gameweek is unavailable, so current chip availability cannot be determined.",
+                "chips": rows}
+
+    windows = {name: [] for name in CHIP_ORDER}
+    invalid = set()
+    seen_ids = {}
+    for rule_index, rule in enumerate(definitions, start=1):
+        if not isinstance(rule, dict):
+            label = _unknown_chip_label({}, rule_index)
+            invalid.add(label)
+            windows[label] = []
+            continue
+        named_label = _chip_key(rule.get("name"))
+        id_label = _chip_key(rule.get("id"))
+        label = named_label or id_label
+        if label is None:
+            safe_name = _unknown_chip_label(rule, rule_index)
+            invalid.add(safe_name)
+            windows[safe_name] = []
+            continue
+        start, stop, count = rule.get("start_event"), rule.get("stop_event"), rule.get("number")
+        identifier = rule.get("id")
+        if named_label and id_label and named_label != id_label:
+            invalid.update((named_label, id_label))
+            continue
+        if (isinstance(identifier, bool) or not isinstance(identifier, int) or identifier < 1 or identifier in seen_ids
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in (start, stop, count))
+                or not 1 <= start <= stop <= 38 or count < 1):
+            invalid.add(label)
+            if isinstance(identifier, int) and not isinstance(identifier, bool) and identifier in seen_ids:
+                invalid.update((label, seen_ids[identifier]))
+            continue
+        seen_ids[identifier] = label
+        windows[label].append({"start": start, "stop": stop, "count": count, "id": identifier})
+    for label, ranges in windows.items():
+        ordered = sorted(ranges, key=lambda row: (row["start"], row["stop"]))
+        if any(left["stop"] >= right["start"] for left, right in zip(ordered, ordered[1:])):
+            invalid.add(label)
+
+    rows = []
+    for label in [*CHIP_ORDER, *(name for name in windows if name not in CHIP_ORDER)]:
+        ranges = sorted(windows[label], key=lambda row: row["start"])
+        if label in invalid or not ranges:
+            reason = ("Unrecognized official chip; its interpretation and availability are unknown."
+                      if label not in CHIP_ORDER else
+                      "Official definitions are missing, invalid, or overlapping; recorded plays are shown from this snapshot.")
+            rows.append({"name": label, "state": "unknown", "used_count": len(normalized_plays.get(label, [])),
+                         "used_gameweeks": sorted(normalized_plays.get(label, [])),
+                         "used_source": "recorded in snapshot" if normalized_plays.get(label) else "",
+                         "reason": reason})
+            continue
+        used = sorted(normalized_plays[label])
+        if len(used) != len(set(used)):
+            rows.append({"name": label, "state": "unknown", "used_count": len(used), "used_gameweeks": used, "used_source": "recorded in snapshot", "reason": "History records the same chip more than once in a gameweek."})
+            continue
+        uses_by_window = {index: 0 for index in range(len(ranges))}
+        unmatched = []
+        for gameweek in used:
+            matches = [index for index, row in enumerate(ranges) if row["start"] <= gameweek <= row["stop"]]
+            if len(matches) != 1:
+                unmatched.append(gameweek)
+            else:
+                uses_by_window[matches[0]] += 1
+        if unmatched or any(uses_by_window[index] > row["count"] for index, row in enumerate(ranges)):
+            rows.append({"name": label, "state": "unknown", "used_count": len(used), "used_gameweeks": used, "used_source": "recorded in snapshot", "reason": "Recorded plays do not reconcile with the official chip windows/counts."})
+            continue
+        active = [index for index, row in enumerate(ranges) if row["start"] <= current_gw <= row["stop"]]
+        future = [index for index, row in enumerate(ranges) if row["start"] > current_gw]
+        current_left = sum(ranges[index]["count"] - uses_by_window[index] for index in active)
+        future_left = sum(ranges[index]["count"] - uses_by_window[index] for index in future)
+        rows.append({"name": label, "state": "known", "used_count": len(used), "used_gameweeks": used, "used_source": "manager history",
+                     "available_now": current_left, "future_count": future_left,
+                     "future_windows": [{"start_event": ranges[index]["start"], "stop_event": ranges[index]["stop"],
+                                         "remaining": ranges[index]["count"] - uses_by_window[index]} for index in future],
+                     "season_total": sum(row["count"] for row in ranges)})
+    if history_unknown:
+        rows.append({"name": "Unrecognized recorded chip", "state": "unknown", "reason": "Manager history contains a chip or gameweek that cannot be safely identified."})
+    return {"state": "known" if all(row["state"] == "known" for row in rows) and not history_unknown else "partial",
+            "gameweek": current_gw, "reason": "Official FPL bootstrap chip windows reconciled with recorded manager history.", "chips": rows}
+
+
+def apply_private_inputs(decision, private):
+    """Replace the public-snapshot caveat when usable account data confirms transfers and prices."""
+    if not (isinstance(private, dict) and private.get("usable") is True):
+        return decision
+    inputs = decision.get("unconfirmed_inputs", [])
+    decision["unconfirmed_inputs"] = [item for item in inputs if not item.startswith("Free transfers and selling prices")]
+    decision["confirmed_inputs"] = [
+        f"Free transfers ({private['free_transfers']}), bank and selling prices come from your FPL account, captured {private['captured_at_utc']}."]
+    return decision
+
+
+def build_team_decision(snapshot, catalog, research, freshness):
+    """Build an auditable, read-only view model from the current saved inputs."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    catalog = catalog if isinstance(catalog, dict) else {}
+    players = {player.get("id"): player for player in catalog.get("players", [])
+               if isinstance(player, dict) and isinstance(player.get("id"), int)}
+    teams = {team.get("id"): team for team in catalog.get("teams", [])
+             if isinstance(team, dict) and isinstance(team.get("id"), int)}
+    squad_snapshot = snapshot.get("squad_snapshot")
+    picks = squad_snapshot.get("picks", []) if isinstance(squad_snapshot, dict) else []
+    if not isinstance(picks, list):
+        picks = []
+
+    research = research if isinstance(research, dict) else {}
+    packet = research.get("packet") if research.get("valid") is True and isinstance(research.get("packet"), dict) else {}
+    sources = packet.get("sources", []) if isinstance(packet.get("sources"), list) else []
+    summaries = {summary.get("id"): summary for summary in research.get("source_summaries", [])
+                 if isinstance(summary, dict) and isinstance(summary.get("id"), str)}
+    evidence_by_player = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        excerpts = source.get("excerpts", [])
+        summary = summaries.get(source.get("id"), {})
+        stale_indexes = set(summary.get("stale_excerpt_indexes", [])) if isinstance(summary, dict) else set()
+        if not isinstance(excerpts, list):
+            continue
+        for index, excerpt in enumerate(excerpts):
+            player_id = excerpt.get("player_id") if isinstance(excerpt, dict) else None
+            if isinstance(player_id, bool) or not isinstance(player_id, int) or player_id < 1 or not isinstance(excerpt.get("text"), str) or not excerpt["text"].strip():
+                continue
+            evidence_by_player.setdefault(player_id, []).append({
+                "text": excerpt["text"], "captured_at_utc": excerpt.get("captured_at_utc"),
+                "publisher": source.get("publisher"), "title": source.get("title"), "url": source.get("url"),
+                "stale": bool(research.get("state") != "ready" or research.get("stale") or summary.get("stale") or index in stale_indexes),
+                "verification": "captured, unverified",
+            })
+
+    fixture_snapshot = snapshot.get("fixtures")
+    fixture_events = fixture_snapshot.get("events", {}) if isinstance(fixture_snapshot, dict) else {}
+    if not isinstance(fixture_events, dict):
+        fixture_events = {}
+    fixture_by_team = {}
+    for event_key, fixtures in fixture_events.items():
+        try:
+            gameweek = int(event_key)
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= gameweek <= 38 or not isinstance(fixtures, list):
+            continue
+        for fixture in fixtures:
+            if not isinstance(fixture, dict):
+                continue
+            for side, opponent, difficulty_field, venue in (
+                ("team_h", "team_a", "team_h_difficulty", "H"),
+                ("team_a", "team_h", "team_a_difficulty", "A"),
+            ):
+                team_id = fixture.get(side)
+                opponent_id = fixture.get(opponent)
+                if isinstance(team_id, int) and not isinstance(team_id, bool):
+                    opponent_team = teams.get(opponent_id, {}) if isinstance(opponent_id, int) and not isinstance(opponent_id, bool) else {}
+                    fixture_by_team.setdefault(team_id, []).append({
+                        "gameweek": gameweek, "opponent": opponent_team.get("short_name") or "Unknown opponent",
+                        "venue": venue, "difficulty": fixture.get(difficulty_field),
+                    })
+    for team_fixtures in fixture_by_team.values():
+        team_fixtures.sort(key=lambda row: row["gameweek"])
+
+    rows = []
+    stale_snapshot = bool(freshness.get("stale", True)) if isinstance(freshness, dict) else True
+    ordered_picks = [item if isinstance(item, dict) else {} for item in picks]
+    for pick in sorted(ordered_picks, key=lambda item: item.get("position") if isinstance(item.get("position"), int) and not isinstance(item.get("position"), bool) else 999):
+        player_id = pick.get("element")
+        player = players.get(player_id) if isinstance(player_id, int) and not isinstance(player_id, bool) else None
+        team = teams.get(player.get("team")) if player and isinstance(player.get("team"), int) else None
+        status = PLAYER_STATUS.get(player.get("status")) if player else None
+        chance = player.get("chance_of_playing_next_round") if player else None
+        valid_chance = chance is None or (isinstance(chance, int) and not isinstance(chance, bool) and 0 <= chance <= 100)
+        status_known = status is not None and valid_chance
+        risk = bool(player and status_known and (player.get("status") != "a" or (chance is not None and chance < 100)))
+        news = player.get("news") if player and isinstance(player.get("news"), str) else ""
+        next_step = "Review the current FPL status and source context."
+        if stale_snapshot:
+            priority = "Snapshot stale"
+            reason = "Refresh the public FPL snapshot before treating player status, stats, fixtures or FPL notes as current."
+        elif not player:
+            priority = "Resolve player data"
+            reason = "This saved pick has no matching player in the current FPL catalog."
+        elif not status_known:
+            priority = "Availability unknown"
+            reason = "The FPL status or chance field is missing or invalid; refresh the public snapshot."
+        elif risk:
+            priority = "Resolve availability"
+            reason = f"FPL status: {status}" + (f"; chance of playing next round: {chance}%" if chance is not None else "; chance of playing was not supplied")
+        elif news:
+            priority = "Review FPL note"
+            reason = "FPL provides a player note; it is shown as source text, not a separate medical verdict."
+        else:
+            minutes = player.get("minutes")
+            form = player.get("form")
+            total_points = player.get("total_points")
+            has_minutes = _finite_number(minutes) and float(minutes) > 0
+            has_stats = all(_finite_number(value) for value in (form, total_points))
+            has_fixtures = bool(fixture_by_team.get(player.get("team")))
+            if not (has_minutes and has_stats and has_fixtures):
+                priority = "Not enough current evidence"
+                missing = []
+                if not has_minutes:
+                    missing.append("meaningful minutes")
+                if not has_stats:
+                    missing.append("form/points stats")
+                if not has_fixtures:
+                    missing.append("upcoming fixtures")
+                reason = "Missing " + ", ".join(missing) + "; no transfer conclusion can be drawn."
+                next_step = "Refresh FPL data and check team/player context before deciding."
+            else:
+                priority = "No official availability flag"
+                reason = f"FPL status: {status}" + (f"; chance of playing next round: {chance}%" if chance is not None else "; chance of playing was not supplied")
+                next_step = "Availability only; this is not a transfer recommendation. Compare minutes, fixtures and alternatives separately."
+        rows.append({
+            "id": player_id, "position": pick.get("position"), "name": player.get("web_name") if player else None,
+            "team": team.get("short_name") if team else None,
+            "role": player.get("element_type") if player else pick.get("element_type"),
+            "priority": priority, "reason": reason, "next_step": next_step, "status": status or "Unknown",
+            "chance": chance if valid_chance else None, "news": news, "news_added": player.get("news_added") if player else None,
+            "minutes": player.get("minutes") if player else None, "form": player.get("form") if player else None,
+            "total_points": player.get("total_points") if player else None, "ep_next": player.get("ep_next") if player else None,
+            "fixtures": fixture_by_team.get(player.get("team"), [])[:3] if player else [],
+            "research": evidence_by_player.get(player_id, []) if isinstance(player_id, int) else [],
+        })
+    return {"generated_at_utc": snapshot.get("generated_at_utc"), "snapshot_stale": stale_snapshot,
+            "snapshot_message": freshness.get("message", "Snapshot freshness is unavailable.") if isinstance(freshness, dict) else "Snapshot freshness is unavailable.", "players": rows,
+            "research_state": research.get("state", "missing"),
+            "research_age_hours": research.get("research_age_hours"),
+            "chips": chip_ledger(snapshot, bool(freshness.get("stale", True)))}
 
 
 def evaluate_plan(plan, catalog):
@@ -96,9 +447,24 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def send_text(self, text, status=HTTPStatus.OK):
+        content = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
     def body(self):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length) or b"{}")
+
+    def private_data(self, config, snapshot):
+        """Serve captured account data only when this server is reachable from this machine alone."""
+        if self.server.server_address[0] not in LOOPBACK_HOSTS:
+            return private_team.disabled()
+        return private_team.load(PRIVATE_TEAM, config, snapshot)
 
     def api_data(self):
         return read_json(ROOT / "data" / "latest.json", default=None), read_json(ROOT / "data" / "catalog.json", default={"players": [], "teams": []})
@@ -112,12 +478,18 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": "No snapshot yet. Refresh FPL data first."}, HTTPStatus.SERVICE_UNAVAILABLE)
             config = load_config()
             decision = assess(snapshot, config)
-            research = research_result(config)
+            private = self.private_data(config, snapshot)
+            apply_private_inputs(decision, private)
+            research = research_result(config, snapshot)
+            team_decision = build_team_decision(snapshot, catalog, research, decision["snapshot_status"])
             return self.send_json({"snapshot": snapshot, "catalog": catalog, "plans": load_plans(snapshot), "config": config,
+                                   "private_team": private,
+                                   "lineup": lineup_helper.suggest(snapshot, catalog, private, decision["snapshot_status"]),
                                    "snapshot_status": decision["snapshot_status"], "decision": decision, "research": research,
+                                   "team_decision": team_decision,
                                    "workflow": read_json(ROOT / "data" / "workflow_status.json", default={"schema_version": 1})})
         if path == "/api/research":
-            return self.send_json(research_result(load_config()))
+            return self.send_json(research_result(load_config(), snapshot))
         if path == "/api/workflow-status":
             return self.send_json(read_json(ROOT / "data" / "workflow_status.json", default={"schema_version": 1}))
         if path == "/api/candidates":
@@ -129,7 +501,8 @@ class Handler(SimpleHTTPRequestHandler):
                 decision = assess(snapshot or {}, config)
                 if decision["status"] == "blocked":
                     return self.send_json({"error": "Candidate Lens is blocked: " + " ".join(decision["blockers"])}, HTTPStatus.CONFLICT)
-                return self.send_json(lens(snapshot or {}, catalog, replace_id, minimum_minutes, config.get("stale_after_hours", 8)))
+                private = self.private_data(config, snapshot or {})
+                return self.send_json(lens(snapshot or {}, catalog, replace_id, minimum_minutes, config.get("stale_after_hours", 8), private=private))
             except (TypeError, ValueError) as error:
                 return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
 
@@ -191,13 +564,18 @@ class Handler(SimpleHTTPRequestHandler):
 
     def serve_static(self, path):
         requested = "index.html" if path in ("/", "") else path.lstrip("/")
-        target = (STATIC / requested).resolve()
-        if STATIC not in target.parents or not target.is_file():
+        static_root = STATIC_DIST.resolve()
+        if not (static_root / "index.html").is_file():
+            # Never fall back to unbuilt TypeScript source; browsers cannot run it.
+            return self.send_text(MISSING_BUNDLE_MESSAGE, HTTPStatus.SERVICE_UNAVAILABLE)
+        target = (static_root / requested).resolve()
+        if static_root not in target.parents or not target.is_file():
             return self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         content = target.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
-        self.send_header("Cache-Control", "public, max-age=300")
+        # index.html names the hashed bundle files, so it must be revalidated after every build.
+        self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else "public, max-age=300")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
@@ -223,6 +601,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-def research_result(config):
-    return evidence_status(load_packet(ROOT / "data" / "research_packet.json"), config["research_stale_after_hours"])

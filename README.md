@@ -45,15 +45,88 @@ FPL_TEAM_ID=1234567 python fetch_fpl.py   # any other team
 
 ## Local dashboard
 
-Run `start-dashboard.ps1` in PowerShell, then open
-`http://127.0.0.1:8765`. It is a private, localhost-only view of the same
-snapshot, with sections for the squad, #club-football rivals, player pool, and
-a Wildcard timing lab.
+The dashboard uses strict TypeScript and Vite for frontend development/builds;
+the Python standard-library server remains the API and local production server.
+The UI includes the squad, #club-football rivals, player pool, Wildcard lab,
+Research Desk, Candidate Lens, and Decision Desk.
+
+### Development mode
+
+In PowerShell terminal 1, from the repository root:
+
+```powershell
+python dashboard.py
+```
+
+In terminal 2:
+
+```powershell
+cd dashboard
+npm ci                 # first setup, or after package-lock.json changes
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Vite serves the TypeScript UI and proxies `/api/*`
+to the Python server at `http://127.0.0.1:8765`.
+
+### Build and serve the production bundle locally
+
+```powershell
+cd dashboard
+npm ci
+npm run typecheck
+npm run build
+cd ..
+python dashboard.py
+```
+
+Open `http://127.0.0.1:8765`. Python serves only the generated `dashboard/dist/`
+files. Until the bundle is built, every non-API page returns `503` with the
+build command, rather than serving TypeScript source that browsers cannot run;
+`/api/*` keeps working. `dashboard/dist/` and `dashboard/node_modules/` are
+ignored by Git, so a fresh checkout always needs this build step.
+
+### Private FPL account data (local only)
+
+The public FPL API does not include selling prices, free transfers, bank or your
+chip status. To use them, sign in to FPL yourself in the Claude browser pane and
+ask Claude to capture your team data. Claude reads `/api/my-team/{team_id}/`
+read-only from that session and saves it to `local/private_team.json`. Claude
+never enters credentials, never makes FPL changes, and never stores a token.
+
+- `local/` is gitignored and not included in the Docker image, so this data is
+  never committed or deployed.
+- The dashboard shows the data in a **Your FPL account** panel and uses it for
+  Candidate Lens affordability, which uses the selling price plus bank.
+- The data is used only when it matches your configured team and the public
+  squad, and only while it is fresh: newer than `stale_after_hours`, with no
+  deadline passed since capture. Otherwise the panel explains why, and Candidate
+  Lens stays blocked rather than guessing.
+- Recapture after any transfer or deadline.
+
+### Container image (Railway-compatible)
+
+The root `Dockerfile` builds the bundle on the host. A Node stage runs `npm ci`,
+the typecheck, and `vite build`. The runtime stage is Python-only: it copies
+the application, `data/`, `config.json`, and the built `dashboard/dist/`, and
+runs `python dashboard.py` as a non-root user. `.dockerignore` is an allowlist.
+Railway uses a root `Dockerfile` in preference to `Procfile`, which remains
+only for running Python directly. To smoke-test locally:
+
+```powershell
+docker build -t fpl-brief:local .
+docker run --rm -e PORT=8080 -p 127.0.0.1:8080:8080 fpl-brief:local
+```
+
+Server-side `data/` is disposable: a restart returns to the snapshot baked into
+the image, so use **Refresh FPL data** after a redeploy. Pushing, creating a
+Railway service, or deploying still requires an approved task and an explicit
+Overseer release decision (see `ops/WORKFLOW.md`).
 
 - **Refresh FPL data** reads the public FPL API and rebuilds `digest.md`,
   `data/latest.json`, and the player catalog used by the dashboard.
-- The Wildcard lab saves editable drafts in `local/plans.json`, which is
-  intentionally ignored by Git. It calculates squad size, current FPL prices,
+- The Wildcard lab saves editable drafts in this browser's local storage. Drafts
+  are not uploaded or synchronized. It calculates squad size, current FPL prices,
   availability flags, and the published `ep_next` sum for the immediate next
   round. It does **not** pretend that a next-round estimate is a multi-week
   forecast.

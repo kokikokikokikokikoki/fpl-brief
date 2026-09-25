@@ -1,0 +1,62 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "condensed",
+        "files": [
+          ".impeccable/mockups/a-tactics-board.html"
+        ],
+        "createdAt": "2026-09-25T14:29:20.248Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI; Barlow Condensed is declared in DESIGN.md"
+      },
+      {
+        "rule": "nested-cards",
+        "value": "*",
+        "files": [
+          ".impeccable/mockups/a-tactics-board.html"
+        ],
+        "createdAt": "2026-09-25T14:29:20.464Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI; board frame around enamel in approved comp"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "archivo",
+        "files": [
+          ".impeccable/mockups/b-kit-drop.html"
+        ],
+        "createdAt": "2026-09-25T14:29:20.686Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI (mockup B)"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "semi condensed",
+        "files": [
+          ".impeccable/mockups/c-matchday-cockpit.html"
+        ],
+        "createdAt": "2026-09-25T14:29:21.107Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI (mockup C)"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "saira semi condensed",
+        "files": [
+          ".impeccable/mockups/c-matchday-cockpit.html"
+        ],
+        "createdAt": "2026-09-25T14:29:21.307Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI (mockup C)"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "saira",
+        "files": [
+          ".impeccable/mockups/c-matchday-cockpit.html"
+        ],
+        "createdAt": "2026-09-25T14:29:21.507Z",
+        "reason": "Claude triage 2026-09-25: exploration mockup for an unchosen/approved direction, not production UI (mockup C)"
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
+_Snapshot 2026-09-25T12:39:54.313401+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -40,7 +40,7 @@ _Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
 | Player | Club | Pos | Price | Captain |
 |---|---|---|---|---|
 | Suzuki | AVL | 1 | £5.0m |  |
-| Hall | NEW | 2 | £5.2m |  |
+| Hall | NEW | 2 | £5.3m |  |
 | Gvardiol | MCI | 2 | £5.7m |  |
 | Van Hecke | TOT | 2 | £4.9m |  |
 | Calafiori | ARS | 2 | £5.8m |  |
@@ -51,17 +51,17 @@ _Snapshot 2026-09-21T19:26:06.565600+00:00 · squad snapshot GW5_
 | Haaland | MCI | 4 | £15.6m | C |
 | Calvert-Lewin | LEE | 4 | £6.0m |  |
 | Dubravka | TOT | 1 | £4.0m |  |
-| João Pedro | CHE | 4 | £7.8m |  |
+| João Pedro | CHE | 4 | £7.7m |  |
 | De Cuyper | BHA | 2 | £4.9m |  |
 | Groß | BHA | 3 | £5.8m |  |
 
 ## Six-gameweek fixture horizon
-- GW6: ARS (FDR 2) v LEE (FDR 5); AVL (FDR 3) v BRE (FDR 4); CHE (FDR 3) v BOU (FDR 4); SUN (FDR 2) v BHA (FDR 3); MUN (FDR 3) v TOT (FDR 4); CRY (FDR 3) v NFO (FDR 3); LIV (FDR 4) v MCI (FDR 4); COV (FDR 2) v NEW (FDR 2)
-- GW7: EVE (FDR 4) v CHE (FDR 3); BRE (FDR 4) v LIV (FDR 3); MCI (FDR 2) v IPS (FDR 5); NEW (FDR 3) v AVL (FDR 3); BHA (FDR 3) v CRY (FDR 3); LEE (FDR 4) v MUN (FDR 3); NFO (FDR 4) v ARS (FDR 3); TOT (FDR 2) v COV (FDR 3)
-- GW8: IPS (FDR 3) v NFO (FDR 2); AVL (FDR 4) v MCI (FDR 4); ARS (FDR 3) v EVE (FDR 5); CHE (FDR 3) v TOT (FDR 4); CRY (FDR 2) v NEW (FDR 3); LIV (FDR 2) v BHA (FDR 4); SUN (FDR 2) v LEE (FDR 3)
-- GW9: CHE (FDR 4) v MUN (FDR 4); BOU (FDR 2) v LEE (FDR 3); BRE (FDR 3) v NFO (FDR 3); MCI (FDR 2) v BHA (FDR 5); TOT (FDR 3) v CRY (FDR 3); AVL (FDR 2) v FUL (FDR 4); LIV (FDR 4) v ARS (FDR 4); NEW (FDR 3) v EVE (FDR 3)
-- GW10: LEE (FDR 3) v TOT (FDR 3); ARS (FDR 2) v HUL (FDR 5); FUL (FDR 2) v NEW (FDR 3); NFO (FDR 4) v MCI (FDR 3); BHA (FDR 3) v BRE (FDR 3); CRY (FDR 4) v LIV (FDR 3); SUN (FDR 4) v CHE (FDR 3); MUN (FDR 3) v AVL (FDR 4)
-- GW11: MCI (FDR 2) v FUL (FDR 5); AVL (FDR 2) v SUN (FDR 4); BOU (FDR 3) v NFO (FDR 3); CHE (FDR 2) v LEE (FDR 4); TOT (FDR 2) v IPS (FDR 3); NEW (FDR 4) v ARS (FDR 3); HUL (FDR 2) v BHA (FDR 2); LIV (FDR 4) v MUN (FDR 4)
+- GW6: ARS (FDR 3) v LEE (FDR 5); AVL (FDR 3) v BRE (FDR 3); CHE (FDR 3) v BOU (FDR 4); SUN (FDR 3) v BHA (FDR 3); MUN (FDR 2) v TOT (FDR 4); CRY (FDR 3) v NFO (FDR 3); LIV (FDR 4) v MCI (FDR 4); COV (FDR 3) v NEW (FDR 2)
+- GW7: EVE (FDR 4) v CHE (FDR 3); BRE (FDR 4) v LIV (FDR 3); MCI (FDR 2) v IPS (FDR 5); NEW (FDR 3) v AVL (FDR 3); BHA (FDR 2) v CRY (FDR 4); LEE (FDR 4) v MUN (FDR 3); NFO (FDR 4) v ARS (FDR 3); TOT (FDR 2) v COV (FDR 3)
+- GW8: IPS (FDR 3) v NFO (FDR 2); AVL (FDR 4) v MCI (FDR 3); ARS (FDR 3) v EVE (FDR 5); CHE (FDR 2) v TOT (FDR 4); CRY (FDR 3) v NEW (FDR 3); LIV (FDR 3) v BHA (FDR 4); SUN (FDR 3) v LEE (FDR 3)
+- GW9: CHE (FDR 4) v MUN (FDR 4); BOU (FDR 3) v LEE (FDR 3); BRE (FDR 3) v NFO (FDR 3); MCI (FDR 3) v BHA (FDR 5); TOT (FDR 2) v CRY (FDR 3); AVL (FDR 2) v FUL (FDR 3); LIV (FDR 4) v ARS (FDR 4); NEW (FDR 3) v EVE (FDR 3)
+- GW10: LEE (FDR 2) v TOT (FDR 3); ARS (FDR 2) v HUL (FDR 5); FUL (FDR 3) v NEW (FDR 3); NFO (FDR 4) v MCI (FDR 3); BHA (FDR 3) v BRE (FDR 4); CRY (FDR 4) v LIV (FDR 3); SUN (FDR 4) v CHE (FDR 3); MUN (FDR 3) v AVL (FDR 4)
+- GW11: MCI (FDR 2) v FUL (FDR 5); AVL (FDR 3) v SUN (FDR 3); BOU (FDR 3) v NFO (FDR 3); CHE (FDR 3) v LEE (FDR 4); TOT (FDR 2) v IPS (FDR 3); NEW (FDR 4) v ARS (FDR 3); HUL (FDR 3) v BHA (FDR 2); LIV (FDR 4) v MUN (FDR 4)
 
 ## Discussion checklist
 - Confirm available free transfers, selling prices, and any changes made after this public snapshot.

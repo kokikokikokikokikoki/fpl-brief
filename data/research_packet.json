@@ -1,203 +1,333 @@
 {
   "schema_version": 2,
-  "generated_at_utc": "2026-09-22T13:47:25.078642+00:00",
+  "generated_at_utc": "2026-09-23T19:44:02.828264+00:00",
   "collector": {
     "version": "v1",
-    "last_run_at_utc": "2026-09-22T13:47:25.078642+00:00"
+    "last_run_at_utc": "2026-09-23T19:44:02.828264+00:00"
   },
   "sources": [
     {
       "id": "official-fpl-news",
       "publisher": "Fantasy Premier League",
       "url": "https://fantasy.premierleague.com/api/bootstrap-static/",
-      "title": null,
-      "retrieved_at_utc": "2026-09-22T13:47:25.224555+00:00",
-      "last_success_at_utc": "2026-09-22T13:47:25.224555+00:00",
+      "title": "Official FPL player news",
+      "retrieved_at_utc": "2026-09-23T19:44:02.996279+00:00",
+      "last_success_at_utc": "2026-09-23T19:44:02.996279+00:00",
       "collection_state": "captured",
       "verification_status": "unverified",
       "excerpts": [
         {
-          "kind": "json_field",
+          "kind": "player_news",
+          "text": "Knee injury - 75% chance of playing",
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 165,
+          "player_name": "João Pedro",
+          "team_id": 6,
+          "team_name": "Chelsea"
+        },
+        {
+          "kind": "player_news",
           "text": "Back injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 6,
+          "player_name": "Saliba",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Groin injury - 75% chance of playing",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 10,
+          "player_name": "White",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Unspecified injury - 75% chance of playing",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 13,
+          "player_name": "Rice",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Al Hilal permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 18,
+          "player_name": "Martinelli",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Borussia Dortmund on loan for the rest of the season",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 22,
+          "player_name": "Nwaneri",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Hamburger SV permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 23,
+          "player_name": "Fábio Vieira",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "has departed the club as a free agent.",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 24,
+          "player_name": "Nelson",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined FC Barcelona permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 27,
+          "player_name": "G.Jesus",
+          "team_id": 1,
+          "team_name": "Arsenal"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Back injury - Expected back 10 Oct",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 29,
+          "player_name": "M.Bizot",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Paris Saint-Germain permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 30,
+          "player_name": "Digne",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Hamstring injury - Expected back 10 Oct",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 34,
+          "player_name": "Pau",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Ankle injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 36,
+          "player_name": "Maatsen",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Rangers on loan for the rest of the season",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 39,
+          "player_name": "Nedeljkovic",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Olympiakos permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 44,
+          "player_name": "Bailey",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Knee injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 48,
+          "player_name": "Onana",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Bolton Wanderers on loan for the rest of the season",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 49,
+          "player_name": "Iling Jr",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Unspecified injury - 75% chance of playing",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 52,
+          "player_name": "Alysson",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Al Hilal permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 55,
+          "player_name": "Watkins",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Unspecified injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 582,
+          "player_name": "Madjo",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Oxford United on loan until January",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 607,
+          "player_name": "Lynch",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Knee injury - Expected back 10 Oct",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 618,
+          "player_name": "Goretzka",
+          "team_id": 2,
+          "team_name": "Aston Villa"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined MK Dons permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 59,
+          "player_name": "Dennis",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Thigh injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 63,
+          "player_name": "Milosavljević",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Thigh injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 65,
+          "player_name": "J.Araujo",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Unspecified injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 70,
+          "player_name": "Kluivert",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Calf injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 77,
+          "player_name": "Adli",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Foot injury - Expected back 7 Nov",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 78,
+          "player_name": "Kroupi.Jr",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Has joined Getafe permanently",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 80,
+          "player_name": "Enes Ünal",
+          "team_id": 3,
+          "team_name": "Bournemouth"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Calf injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 84,
+          "player_name": "Collins",
+          "team_id": 4,
+          "team_name": "Brentford"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Groin injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 85,
+          "player_name": "Van den Berg",
+          "team_id": 4,
+          "team_name": "Brentford"
         },
         {
-          "kind": "json_field",
+          "kind": "player_news",
           "text": "Unspecified injury - Expected back 10 Oct",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
-        },
-        {
-          "kind": "json_field",
-          "text": "Knee injury - Unknown return date",
-          "captured_at_utc": "2026-09-22T13:47:25.224555+00:00"
+          "captured_at_utc": "2026-09-23T19:44:02.996279+00:00",
+          "player_id": 97,
+          "player_name": "Jensen",
+          "team_id": 4,
+          "team_name": "Brentford"
         }
       ],
       "claims": [],
-      "attempted_at_utc": "2026-09-22T13:30:36.826919+00:00"
+      "attempted_at_utc": "2026-09-23T19:44:02.828264+00:00",
+      "omitted_excerpts": 169
     },
     {
       "id": "official-arsenal-news",
       "publisher": "Arsenal Football Club",
       "url": "https://www.arsenal.com/news/all/1",
       "title": "News | Arsenal FC Official Website | Arsenal.com",
-      "retrieved_at_utc": "2026-09-22T13:47:26.301157+00:00",
-      "last_success_at_utc": "2026-09-22T13:47:26.301157+00:00",
+      "retrieved_at_utc": "2026-09-23T19:44:03.779218+00:00",
+      "last_success_at_utc": "2026-09-23T19:44:03.779218+00:00",
       "collection_state": "captured",
       "verification_status": "unverified",
       "excerpts": [
         {
           "kind": "title",
           "text": "News | Arsenal FC Official Website | Arsenal.com",
-          "captured_at_utc": "2026-09-22T13:47:26.301157+00:00"
+          "captured_at_utc": "2026-09-23T19:44:03.779218+00:00"
         }
       ],
       "claims": [],
-      "attempted_at_utc": "2026-09-22T13:30:36.826919+00:00"
+      "attempted_at_utc": "2026-09-23T19:44:02.828264+00:00",
+      "omitted_excerpts": 0
     }
   ],
   "warnings": [

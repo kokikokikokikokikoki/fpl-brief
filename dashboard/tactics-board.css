@@ -1,0 +1,103 @@
+/* The lineup tactics board — see DESIGN.md "Board" and "Shirt magnet". */
+.tactics { margin-bottom: 26px; }
+.board-stats { display: flex; flex-wrap: wrap; gap: 10px 32px; margin: 0 0 14px; }
+.board-stats div { display: grid; }
+.board-stats dt { order: 2; color: var(--ink-soft); font-size: 13px; }
+.board-stats dd { order: 1; margin: 0; font: 700 26px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.board-stats .deadline dd { color: var(--marker-red); }
+.stat-note { order: 3; color: var(--ink-soft); font-size: 12px; }
+.board-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; margin-bottom: 14px; }
+.board-head p { margin: 0; color: var(--ink-soft); font-size: 15px; }
+.board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.board-total { font: 700 20px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.tactics-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .9fr); gap: 22px; align-items: start; }
+
+.board-frame { position: relative; padding: 14px; border-radius: 18px; background: linear-gradient(180deg, var(--frame-hi), var(--frame)); box-shadow: 0 12px 28px rgb(0 0 0 / 16%), inset 0 1px 0 #fff; }
+.enamel { position: relative; overflow: hidden; border-radius: 8px; background:
+  radial-gradient(60% 35% at 78% 22%, rgb(28 85 199 / 4%), transparent 70%),
+  radial-gradient(45% 25% at 20% 70%, rgb(201 48 44 / 3.5%), transparent 70%),
+  linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 70%) 45%, transparent 60%),
+  radial-gradient(120% 80% at 30% 0%, #FFFFFF, var(--enamel) 55%, var(--enamel-shade)); }
+.board-pitch { position: relative; aspect-ratio: 68 / 80; color: var(--pitch-line); }
+.pitch-print { position: absolute; inset: 0; width: 100%; height: 100%; }
+.board-rows { position: absolute; inset: 0; }
+.board-row { position: absolute; left: 3%; right: 3%; display: flex; justify-content: space-evenly; transform: translateY(-50%); }
+
+.magnet { position: relative; display: grid; justify-items: center; gap: 2px; width: 122px; padding: 6px 2px 8px; border: 0; border-radius: 12px; background: none; color: var(--ink); touch-action: none; user-select: none; transition: transform .35s var(--ease), filter .35s var(--ease); filter: drop-shadow(0 3px 3px rgb(0 0 0 / 20%)); }
+.magnet:hover, .magnet[aria-pressed="true"] { transform: translateY(-6px) rotate(-2deg); filter: drop-shadow(0 12px 10px rgb(0 0 0 / 24%)); }
+.magnet[aria-pressed="true"] .plate { background: var(--marker-blue); }
+.magnet.is-lifted { opacity: .35; }
+.magnet-base { position: absolute; top: 8px; left: 50%; width: 76px; height: 76px; margin-left: -38px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #FFFFFF, #D9DEDB 62%, #B5BCB9); box-shadow: inset 0 -3px 6px rgb(0 0 0 / 12%), 0 2px 2px rgb(0 0 0 / 18%); }
+.magnet .jersey { position: relative; width: 84px; height: 84px; }
+.plate { position: relative; max-width: 100%; padding: 1px 9px; border-radius: 6px; background: var(--ink); color: #fff; font: 700 16px/1.35 var(--display); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.magnet-est { font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+.magnet.is-doubt .plate { background: #6B4300; }
+.doubt-word { color: var(--caution); font-weight: 700; }
+.arm { position: absolute; top: 10px; right: 16px; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--marker-red); color: #fff; font: 800 14px/1 var(--display); box-shadow: 0 2px 3px rgb(0 0 0 / 25%); }
+.arm.vice { background: var(--ink); }
+.magnet-ghost { position: fixed; top: 0; left: 0; z-index: 50; pointer-events: none; filter: drop-shadow(0 18px 14px rgb(0 0 0 / 30%)); }
+.tactics.is-dragging .magnet:not(.is-lifted):hover { transform: scale(1.06); }
+
+.tray { margin-top: 12px; padding: 10px 12px 12px; border-radius: 10px; background: linear-gradient(180deg, #CDD3D1, #BFC6C3); box-shadow: inset 0 2px 5px rgb(0 0 0 / 14%); }
+.tray h3 { margin: 0 0 4px; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; }
+.tray-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; }
+.tray-slot { display: grid; justify-items: center; }
+.slot-label { font: 700 14px/1 var(--display); letter-spacing: .04em; }
+
+.marker-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.marker-layer .stroke { fill: none; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+.marker-layer .green { stroke: var(--marker-green); }
+.marker-layer .red { stroke: var(--marker-red); stroke-width: 2.6; }
+.marker-layer .note { font: 700 20px/1 var(--hand); stroke: none; }
+.marker-layer .note.green { fill: var(--marker-green); }
+.marker-layer .note.red { fill: var(--marker-red); }
+.board-toast { position: absolute; left: 50%; bottom: 18px; z-index: 5; max-width: 90%; margin: 0; padding: 6px 14px; border-radius: 10px; background: var(--enamel); color: var(--marker-blue); font-size: 18px; text-align: center; box-shadow: var(--lift); opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
+.board-toast:empty { display: none; }
+.board-toast.show { animation: toast 3.2s var(--ease) forwards; }
+.board-toast.bad { color: var(--marker-red); }
+@keyframes toast { 0% { opacity: 0; transform: translate(-50%, 8px); } 8%, 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, 0); } }
+.board-notice { padding: 40px 28px; text-align: center; }
+.board-notice p { font-size: 17px; }
+.hand, .hand-note { font-family: var(--hand); font-weight: 700; }
+.hand-note { color: var(--marker-red); font-size: 28px; }
+
+.coach-notes { padding: 20px 22px; border-radius: 14px; background: var(--enamel); box-shadow: var(--rest); }
+.coach-notes h2 { margin: 0; }
+.notes-src { margin: 4px 0 12px; color: var(--ink-soft); font-size: 14px; }
+.coach-notes section { padding: 12px 0; border-top: 1px dashed var(--rule); }
+.coach-notes h3 { margin: 0 0 6px; font: 700 13px/1.2 var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.coach-notes p { margin: 4px 0 0; font-size: 15px; }
+.hand-list { margin: 0; padding: 0; list-style: none; }
+.hand-list li, .coach-notes .hand { font-size: 21px; line-height: 1.3; }
+.hand.green { color: var(--marker-green); } .hand.red { color: var(--marker-red); } .hand.blue { color: var(--marker-blue); }
+.warn-line { color: #7A1C17; font-weight: 600; }
+.picked-name { font: 800 22px/1.15 var(--display); }
+.picked-name span { color: var(--ink-soft); font: 600 15px/1 var(--body); }
+.picked dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 8px 0 0; font-size: 15px; }
+.picked dt { color: var(--ink-soft); } .picked dd { margin: 0; font-weight: 600; }
+.picked-news { margin: 8px 0 0; padding-left: 18px; font-size: 14px; overflow-wrap: anywhere; }
+.picked-news .src { color: var(--ink-soft); font-weight: 700; }
+.jev { padding: 12px 14px; border-radius: 10px; background: var(--enamel-shade); }
+.coach-notes .fine { color: var(--ink-soft); font-size: 13px; }
+.lineup-list { margin-top: 18px; }
+.lineup-list > summary { cursor: pointer; font: 700 18px/1.3 var(--display); }
+
+@media (max-width: 1100px) { .tactics-grid { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .board-frame { padding: 8px; }
+  .magnet { width: 25%; min-width: 0; padding: 4px 0 6px; }
+  .magnet-base { top: 6px; width: 50px; height: 50px; margin-left: -25px; }
+  .magnet .jersey { width: 56px; height: 56px; }
+  .plate { font-size: 12.5px; padding: 1px 4px; letter-spacing: 0; }
+  .tray-slot { min-width: 0; width: 100%; }
+  .magnet-est { font-size: 12px; }
+  .arm { top: 2px; right: 4px; width: 22px; height: 22px; font-size: 12px; }
+  .board-row { left: 1%; right: 1%; }
+  .hand-list li, .coach-notes .hand { font-size: 19px; }
+  .tray-slot .magnet { width: 100%; }
+  .marker-layer .note { display: none; }
+  .board-pitch { aspect-ratio: 68 / 108; }
+  .board-stats { gap: 8px 20px; }
+  .board-stats dd { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .magnet { transition: none; } .board-toast.show { animation: none; opacity: 1; transform: translate(-50%, 0); } }

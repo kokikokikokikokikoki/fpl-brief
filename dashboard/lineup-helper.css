@@ -1,0 +1,26 @@
+.lineup-helper { margin-bottom: 20px; }
+.lineup-helper h3 { margin: 0 0 8px; font-size: 15px; }
+.lineup-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.lineup-summary > div { display: grid; gap: 4px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; }
+.lineup-summary strong { font-size: 16px; line-height: 1.3; }
+.lineup-block { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.lineup-block p { margin: 0 0 6px; font-size: 14px; }
+.lineup-changes { display: grid; gap: 4px; margin: 0 0 6px; padding-left: 18px; font-size: 14px; }
+.lineup-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.lineup-line h3 span { color: var(--muted); font-weight: 600; }
+.lineup-line > ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.lineup-bench > ul { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.lineup-player { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2, transparent); }
+.lineup-player.is-flagged { border-color: var(--caution); }
+.lineup-player p { margin: 6px 0 0; color: var(--text); font-size: 13px; line-height: 1.45; }
+.lineup-player-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.lineup-player-head strong { font-size: 15px; }
+.lineup-meta { color: var(--muted); font-size: 12px; }
+.lineup-estimate { margin-left: auto; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lineup-armband,.lineup-bench-slot { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 999px; font-size: 12px; font-weight: 800; text-align: center; color: #fff; background: var(--marker-red); }
+.lineup-armband.vice { background: var(--ink); }
+.lineup-bench-slot { color: var(--text); background: transparent; border: 1px solid var(--line); }
+.lineup-evidence { margin: 7px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.lineup-source { color: var(--muted); font-weight: 700; }
+@media (max-width: 1100px) { .lineup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lineup-bench > ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .lineup-grid, .lineup-bench > ul { grid-template-columns: 1fr; } }

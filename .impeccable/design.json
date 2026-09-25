@@ -1,0 +1,23 @@
+{
+  "name": "FPL Brief — Night Match Analysis Desk",
+  "direction": "A private, calm, evidence-led FPL decision desk. Prioritize league context, actionable decisions, and readable supporting data.",
+  "colors": {
+    "background": "#101310",
+    "surface": "#191d19",
+    "surfaceRaised": "#222922",
+    "border": "#343c33",
+    "text": "#f2f1e9",
+    "muted": "#a6ada1",
+    "positive": "#b3ce9c",
+    "caution": "#e1bd78",
+    "risk": "#e49a88"
+  },
+  "typography": "Inter, Segoe UI, ui-sans-serif, system-ui; tabular numerals for scores and prices.",
+  "layout": "Persistent desktop league rail and wide analysis canvas; compact screens collapse to a horizontal section rail.",
+  "principles": [
+    "Use hierarchy and spacing instead of a wall of interchangeable cards.",
+    "Pair status colors with explicit labels and keep contrast high.",
+    "Keep data tables horizontally scrollable on narrow screens.",
+    "Respect reduced motion and keyboard focus."
+  ]
+}

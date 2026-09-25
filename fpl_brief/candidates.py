@@ -31,7 +31,7 @@ def is_available(player):
     return player.get("status") == "a" and (chance is None or chance >= 100)
 
 
-def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, now=None):
+def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, now=None, private=None):
     """Return legal same-position alternatives with every applied rule exposed."""
     snapshot = snapshot or {}
     players = player_map(catalog)
@@ -55,11 +55,20 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         raise ValueError("Select a player from the public squad snapshot")
     if not isinstance(minimum_minutes, int) or minimum_minutes < 0:
         raise ValueError("Minimum minutes must be a non-negative integer")
-    outgoing_pick = next((pick for pick in picks if pick.get("element") == replace_id), None)
-    bank = snapshot.get("squad_snapshot", {}).get("bank")
-    selling_price = outgoing_pick.get("selling_price") if isinstance(outgoing_pick, dict) else None
+    usable = private if isinstance(private, dict) and private.get("usable") is True else None
+    account = usable if usable and replace_id in usable.get("prices", {}) else None
+    if account:
+        selling_price = account["prices"][replace_id]["selling_price"]
+        bank = account["bank"]
+        budget_source = f"Affordability uses your FPL account selling price plus bank, captured {account['captured_at_utc']}."
+    else:
+        outgoing_pick = next((pick for pick in picks if pick.get("element") == replace_id), None)
+        bank = snapshot.get("squad_snapshot", {}).get("bank")
+        selling_price = outgoing_pick.get("selling_price") if isinstance(outgoing_pick, dict) else None
+        budget_source = "Affordability uses the validated public squad selling price plus bank; private transfer state remains unavailable."
     if isinstance(selling_price, bool) or not isinstance(selling_price, (int, float)) or selling_price < 0:
-        raise ValueError("The actual selling price is unavailable; affordability claims are blocked")
+        hint = f" {private['message']}" if isinstance(private, dict) and isinstance(private.get("message"), str) and private.get("message") else ""
+        raise ValueError("The actual selling price is unavailable; affordability claims are blocked." + hint)
     if isinstance(bank, bool) or not isinstance(bank, (int, float)) or bank < 0:
         raise ValueError("The bank balance is unavailable; affordability claims are blocked")
     budget = int(selling_price) + int(bank)
@@ -89,5 +98,6 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         "filters": {"same_position": True, "within_budget": True, "team_limit": 3, "availability": "available only", "minimum_minutes": minimum_minutes},
         "candidates": candidates,
         "method": "Rows are filtered for legal replacements, then shown by xGI per 90, minutes, and fixture difficulty. This is not a points forecast.",
-        "caveats": ["Affordability uses the validated public squad selling price plus bank; private transfer state remains unavailable.", "Fixture difficulty is the average published FDR across the stored horizon."],
+        "budget_source": "account" if account else "public",
+        "caveats": [budget_source, "Fixture difficulty is the average published FDR across the stored horizon."],
     }

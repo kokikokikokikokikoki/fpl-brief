@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPL Brief · Tactics Board (mockup A)</title>
+<!--
+THESIS: The week is a coach's magnetic board. The XI are shirt magnets placed on a printed pitch; decisions are marker strokes on the enamel. Refuses the default dark card grid.
+OWN-WORLD: White enamel board, brushed-aluminium frame, faint teal printed pitch lines, club-coloured shirt magnets with lift shadows, navy ink, dry-erase blue/red/green marker notes in a hand face.
+STORY: See the suggested XI at a glance, spot what changes against your saved lineup, pick up any magnet for its reason, then act before the deadline.
+FIRST VIEWPORT: Deadline strip on top; the board (vertical pitch, 4-4-2) owns the left 2/3 with the bench tray under it; "Coach's notes" marker column on the right with changes, captaincy, Bench Boost, Ask Jev.
+FORM: Grounded direction 4 (tactics magnetic board), staging: board-as-workspace. Seed 2ba8e144.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --enamel: #F7F8F5; --enamel-2: #EEF1EC; --frame: #B9BFC2; --frame-hi: #E3E6E7;
+    --ink: #14213D; --ink-2: #4A5670; --line: rgb(20 120 110 / 22%);
+    --marker-blue: #1C55C7; --marker-red: #C9302C; --marker-green: #1C7C45;
+    --tray: #DDE2E0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #D9DEDB; color: var(--ink); font: 16px/1.5 Barlow, system-ui, sans-serif; }
+  .mock-flag { position: fixed; right: 12px; bottom: 12px; z-index: 9; padding: 6px 10px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 12px; }
+  .app { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh; }
+  /* Magnet tray navigation */
+  .rail { padding: 22px 16px; background: var(--tray); border-right: 1px solid #C6CDCA; }
+  .brand { font: 800 22px/1 "Barlow Condensed", sans-serif; letter-spacing: .02em; }
+  .brand span { color: var(--marker-green); }
+  .rail nav { display: grid; gap: 6px; margin-top: 28px; }
+  .rail a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; color: var(--ink-2); font-weight: 600; text-decoration: none; }
+  .rail a::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: #AEB6B3; box-shadow: 0 1px 1px rgb(0 0 0 / 25%); }
+  .rail a[aria-current="page"] { color: var(--ink); background: var(--enamel); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); }
+  .rail a[aria-current="page"]::before { background: var(--marker-red); }
+  .rail a:focus-visible { outline: 3px solid var(--marker-blue); outline-offset: 2px; }
+  .league { margin-top: 32px; padding-top: 18px; border-top: 1px solid #C6CDCA; }
+  .league strong { display: block; font: 800 44px/1 "Barlow Condensed", sans-serif; }
+  .league p { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
+  main { padding: 22px clamp(16px, 3vw, 40px) 48px; }
+  /* Deadline strip */
+  .strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; margin-bottom: 18px; }
+  .strip h1 { margin: 0 auto 0 0; font: 800 clamp(28px, 3.2vw, 40px)/1 "Barlow Condensed", sans-serif; letter-spacing: -.01em; }
+  .stat { display: grid; }
+  .stat b { font: 700 24px/1.1 "Barlow Condensed", sans-serif; }
+  .stat span { color: var(--ink-2); font-size: 13px; }
+  .stat.deadline b { color: var(--marker-red); }
+  .work { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .9fr); gap: 22px; align-items: start; }
+  /* The board */
+  .board { position: relative; padding: 14px; border-radius: 18px; background: linear-gradient(180deg, var(--frame-hi), var(--frame)); box-shadow: 0 10px 28px rgb(0 0 0 / 18%), inset 0 1px 0 #fff; }
+  .enamel { position: relative; border-radius: 8px; background: radial-gradient(120% 80% at 30% 0%, #FFFFFF, var(--enamel) 55%, var(--enamel-2)); overflow: hidden; }
+  .pitch { position: relative; aspect-ratio: 68 / 80; }
+  .pitch svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .row { position: absolute; left: 4%; right: 4%; display: flex; justify-content: space-evenly; transform: translateY(-50%); }
+  .magnet { position: relative; display: grid; justify-items: center; gap: 2px; width: 120px; padding: 4px 2px 6px; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; transition: transform .35s cubic-bezier(.16, 1, .3, 1), filter .35s cubic-bezier(.16, 1, .3, 1); filter: drop-shadow(0 3px 3px rgb(0 0 0 / 22%)); }
+  .magnet:hover, .magnet[aria-pressed="true"] { transform: translateY(-6px) rotate(-2deg); filter: drop-shadow(0 12px 10px rgb(0 0 0 / 26%)); }
+  .magnet:focus-visible { outline: 3px solid var(--marker-blue); outline-offset: 2px; border-radius: 10px; }
+  .magnet .jersey { width: 86px; height: 86px; }
+  .magnet .name { max-width: 100%; padding: 1px 8px; border-radius: 6px; background: var(--ink); color: #fff; font: 700 15px/1.3 "Barlow Condensed", sans-serif; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .magnet .est { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .magnet .arm { position: absolute; top: 12px; right: 18px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--marker-red); color: #fff; font: 800 13px/1 "Barlow Condensed", sans-serif; box-shadow: 0 2px 3px rgb(0 0 0 / 25%); }
+  .magnet .arm.v { background: var(--ink); }
+  .marker { position: absolute; font-family: Kalam, cursive; font-weight: 700; line-height: 1.1; pointer-events: none; }
+  .marker.in { color: var(--marker-green); }
+  .marker.cap { color: var(--marker-red); }
+  /* Bench tray */
+  .tray { margin-top: 12px; padding: 12px 14px 14px; border-radius: 10px; background: linear-gradient(180deg, #CDD3D1, #BFC6C3); box-shadow: inset 0 2px 4px rgb(0 0 0 / 14%); }
+  .tray h2 { margin: 0 0 6px; font: 800 16px/1 "Barlow Condensed", sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+  .tray .bench { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; }
+  .slot { font: 700 13px/1 "Barlow Condensed", sans-serif; color: var(--ink); }
+  .magnet.flagged .name { background: var(--marker-red); }
+  /* Coach's notes */
+  .notes { padding: 20px 22px; border-radius: 14px; background: var(--enamel); box-shadow: 0 6px 20px rgb(0 0 0 / 12%); }
+  .notes h2 { margin: 0 0 4px; font: 800 26px/1.1 "Barlow Condensed", sans-serif; }
+  .notes .sub { margin: 0 0 16px; color: var(--ink-2); font-size: 14px; }
+  .note { margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px dashed #C9D0CC; }
+  .note:last-of-type { border-bottom: 0; }
+  .note h3 { margin: 0 0 6px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+  .hand { font: 700 22px/1.25 Kalam, cursive; }
+  .hand.green { color: var(--marker-green); } .hand.red { color: var(--marker-red); } .hand.blue { color: var(--marker-blue); }
+  .note p { margin: 4px 0 0; font-size: 15px; }
+  .detail { min-height: 120px; }
+  .detail .pname { font: 800 24px/1.1 "Barlow Condensed", sans-serif; }
+  .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 0; font-size: 15px; }
+  .detail dt { color: var(--ink-2); }
+  .detail dd { margin: 0; font-weight: 600; }
+  .ask { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 13px 16px; border: 0; border-radius: 12px; background: var(--ink); color: #fff; font: 700 17px/1 "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; box-shadow: 0 4px 10px rgb(0 0 0 / 25%); }
+  .ask:hover { background: #22325A; }
+  .ask:focus-visible { outline: 3px solid var(--marker-blue); outline-offset: 3px; }
+  .fine { margin: 12px 0 0; color: var(--ink-2); font-size: 13px; }
+  @media (max-width: 1100px) { .work { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+    .rail { display: flex; align-items: center; gap: 16px; padding: 12px 16px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #C6CDCA; }
+    .rail nav { display: flex; margin: 0; }
+    .rail a { white-space: nowrap; }
+    .league { display: none; }
+    .magnet { width: 76px; }
+    .magnet .name { font-size: 13px; padding: 1px 5px; }
+    .magnet .est { font-size: 12px; }
+    .magnet .arm { top: 6px; right: 6px; width: 20px; height: 20px; font-size: 11px; }
+    .magnet .jersey { width: 50px; height: 50px; }
+    .marker { font-size: 14px !important; }
+    .board { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="mock-flag">Mockup A · real GW6 data · kit colours illustrative</div>
+<div class="app">
+  <aside class="rail" aria-label="Sections">
+    <div class="brand">FPL<span>·</span>BRIEF</div>
+    <nav>
+      <a href="#">This week</a>
+      <a href="#" aria-current="page">Lineup</a>
+      <a href="#">Transfers</a>
+      <a href="#">Rivals</a>
+      <a href="#">Player pool</a>
+      <a href="#">News desk</a>
+    </nav>
+    <div class="league"><strong id="rank"></strong><p id="league-line"></p></div>
+  </aside>
+  <main>
+    <header class="strip">
+      <h1 id="title"></h1>
+      <div class="stat deadline"><b id="cd"></b><span>to deadline</span></div>
+      <div class="stat"><b id="ft"></b><span>free transfers</span></div>
+      <div class="stat"><b id="bank"></b><span>in the bank</span></div>
+      <div class="stat"><b id="total"></b><span>XI FPL estimate</span></div>
+    </header>
+    <div class="work">
+      <section aria-labelledby="board-title">
+        <h2 id="board-title" class="visually-hidden" style="position:absolute;left:-9999px">Suggested starting eleven</h2>
+        <div class="board">
+          <div class="enamel">
+            <div class="pitch" id="pitch">
+              <svg class="lines" viewBox="0 0 68 80" preserveAspectRatio="none" aria-hidden="true">
+                <g fill="none" stroke="rgb(20 120 110 / 28%)" stroke-width=".35">
+                  <rect x="2" y="2" width="64" height="76" rx=".6"/>
+                  <line x1="2" y1="78" x2="66" y2="78"/>
+                  <rect x="16" y="2" width="36" height="13"/><rect x="26" y="2" width="16" height="5"/>
+                  <path d="M27 15 A7 7 0 0 0 41 15"/>
+                  <circle cx="34" cy="80" r="9"/>
+                </g>
+              </svg>
+            </div>
+          </div>
+          <div class="tray"><h2>Bench tray</h2><div class="bench" id="bench"></div></div>
+        </div>
+      </section>
+      <aside class="notes" aria-labelledby="notes-title">
+        <h2 id="notes-title">Coach's notes</h2>
+        <p class="sub" id="source"></p>
+        <div class="note"><h3>Changes</h3><div id="changes"></div></div>
+        <div class="note"><h3>Armband</h3><div id="armband"></div></div>
+        <div class="note"><h3>Bench Boost</h3><p id="bb"></p></div>
+        <div class="note detail" aria-live="polite"><h3>Picked up</h3><div id="detail"><p>Tap a shirt to lift it off the board and see why it's there.</p></div></div>
+        <button class="ask" type="button">Ask Jev about this lineup</button>
+        <p class="fine">Estimates are FPL's own next-round figures, not a forecast by this app. Jev weighs today's team news with sources.</p>
+      </aside>
+    </div>
+  </main>
+</div>
+<script src="kits.js"></script>
+<script src="data.js"></script>
+<script>
+  const d = window.GW6;
+  const all = [...Object.values(d.lines).flat(), ...d.bench];
+  const byId = new Map(all.map((p) => [p.id, p]));
+  document.getElementById("title").textContent = `Gameweek ${d.gw} lineup`;
+  const c = countdown(d.deadline);
+  document.getElementById("cd").textContent = c.passed ? "Passed" : `${c.d}d ${c.h}h ${c.m}m`;
+  document.getElementById("ft").textContent = d.account.ft;
+  document.getElementById("bank").textContent = money(d.account.bank);
+  document.getElementById("total").textContent = d.total;
+  document.getElementById("rank").textContent = `${d.league}rd`;
+  document.getElementById("league-line").textContent = `#club-football · ${d.points} pts · ${d.gap} behind leader`;
+  document.getElementById("source").textContent = `Compared with ${d.changes.source}.`;
+
+  const magnet = (p, keeper) => {
+    const arm = p.id === d.captain ? '<span class="arm">C</span>' : p.id === d.vice ? '<span class="arm v">V</span>' : "";
+    const flagged = p.flags.some((f) => f.startsWith("doubtful")) || p.blockers.length;
+    return `<button class="magnet${flagged ? " flagged" : ""}" type="button" data-id="${p.id}" aria-pressed="false" aria-label="${esc(p.name)}, ${esc(p.team)}, FPL estimate ${p.est}">${jersey(p.team, { keeper })}${arm}<span class="name">${esc(p.name)}</span><span class="est">${p.est} pts est.</span></button>`;
+  };
+  const rows = { FWD: 18, MID: 42, DEF: 66, GK: 88 };
+  const pitch = document.getElementById("pitch");
+  for (const [role, top] of Object.entries(rows)) {
+    pitch.insertAdjacentHTML("beforeend", `<div class="row" style="top:${top}%">${d.lines[role].map((p) => magnet(p, role === "GK")).join("")}</div>`);
+  }
+  // Marker annotations for the changes.
+  const inName = d.changes.start[0];
+  pitch.insertAdjacentHTML("beforeend", `<span class="marker in" style="top:4%;right:6%;font-size:19px;transform:rotate(-4deg)">IN: ${esc(inName)} ↓</span>`);
+  pitch.insertAdjacentHTML("beforeend", `<span class="marker cap" style="top:30%;left:5%;font-size:19px;transform:rotate(-3deg)">armband → ${esc(d.changes.captain.to)}</span>`);
+
+  document.getElementById("bench").innerHTML = d.bench.map((p, i) => `<div style="display:grid;justify-items:center"><span class="slot">${i === 0 ? "GK" : "B" + i}</span>${magnet(p, i === 0)}</div>`).join("");
+  const ch = d.changes;
+  document.getElementById("changes").innerHTML =
+    ch.start.map((n) => `<div class="hand green">+ start ${esc(n)}</div>`).join("") +
+    ch.bench.map((n) => `<div class="hand red">− bench ${esc(n)}</div>`).join("") +
+    (ch.bench_order_changed ? `<p>Bench order changes too: see the tray.</p>` : "");
+  document.getElementById("armband").innerHTML = `<div class="hand blue">C ${esc(ch.captain.from)} → ${esc(ch.captain.to)}</div><div class="hand blue">V ${esc(ch.vice.from)} → ${esc(ch.vice.to)}</div><p>${esc(byId.get(d.captain).name)} has the highest FPL estimate in the XI (${byId.get(d.captain).est}).</p>`;
+  document.getElementById("bb").textContent = d.bb;
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".magnet");
+    if (!button) return;
+    document.querySelectorAll(".magnet[aria-pressed=true]").forEach((b) => b.setAttribute("aria-pressed", "false"));
+    button.setAttribute("aria-pressed", "true");
+    const p = byId.get(Number(button.dataset.id));
+    const status = p.blockers.length ? p.blockers.join(", ") : p.flags.length ? p.flags.join(", ") : "Available";
+    document.getElementById("detail").innerHTML = `<div class="pname">${esc(p.name)} <span style="color:var(--ink-2);font-size:16px">${esc(p.role)} · ${esc(p.team)}</span></div><dl><dt>FPL estimate</dt><dd>${p.est} pts</dd><dt>Form</dt><dd>${esc(p.form)}</dd><dt>Price</dt><dd>${money(p.price)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${p.news ? `<dt>FPL note</dt><dd>${esc(p.news)}</dd>` : ""}</dl>`;
+  });
+</script>
+</body>
+</html>

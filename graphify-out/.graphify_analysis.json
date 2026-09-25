@@ -1,0 +1,401 @@
+{
+  "communities": {
+    "0": [
+      "fetch_fpl",
+      "fetch_fpl_availability",
+      "fetch_fpl_build_digest",
+      "fetch_fpl_build_digest_row",
+      "fetch_fpl_fixture_map",
+      "fetch_fpl_format_money",
+      "fetch_fpl_format_number",
+      "fetch_fpl_gameweeks",
+      "fetch_fpl_main",
+      "fetch_fpl_rationale_2",
+      "fetch_fpl_rationale_61",
+      "fetch_fpl_write_atomic",
+      "fpl_brief_config",
+      "fpl_brief_config_load",
+      "fpl_brief_render",
+      "fpl_brief_render_clean",
+      "fpl_brief_render_render",
+      "fpl_brief_research",
+      "fpl_brief_research_evidence_status",
+      "fpl_brief_research_load_packet",
+      "fpl_brief_research_main",
+      "fpl_brief_research_parse_time",
+      "fpl_brief_research_rationale_1",
+      "fpl_brief_research_rationale_23",
+      "fpl_brief_research_rationale_57",
+      "fpl_brief_research_validate_packet",
+      "fpl_brief_storage",
+      "fpl_brief_storage_read_json",
+      "fpl_brief_storage_write_atomic",
+      "fpl_brief_workflow",
+      "fpl_brief_workflow_rationale_1",
+      "fpl_brief_workflow_update",
+      "json",
+      "os",
+      "pathlib",
+      "tempfile",
+      "tests_test_research_candidates",
+      "tests_test_research_candidates_researchtests",
+      "tests_test_research_candidates_researchtests_setup",
+      "tests_test_research_candidates_researchtests_test_packet_requires_dated_http_source_and_fact",
+      "tests_test_research_candidates_researchtests_test_stale_unverified_evidence_warns_explicitly",
+      "tests_test_research_candidates_researchtests_test_valid_packet_is_current_and_confirmed",
+      "tests_test_research_candidates_workflowtests",
+      "tests_test_research_candidates_workflowtests_test_update_preserves_existing_records",
+      "zoneinfo"
+    ],
+    "1": [
+      "fpl_brief_analyze",
+      "fpl_brief_analyze_compare_squads",
+      "fpl_brief_analyze_meaningful_changes",
+      "fpl_brief_analyze_select_rivals",
+      "fpl_brief_analyze_squad_ids",
+      "fpl_brief_api",
+      "fpl_brief_api_client",
+      "fpl_brief_api_client_get",
+      "fpl_brief_api_client_init",
+      "fpl_brief_api_client_standings",
+      "fpl_brief_api_fetcherror",
+      "fpl_brief_api_py_runtimeerror",
+      "fpl_brief_collect",
+      "fpl_brief_collect_availability",
+      "fpl_brief_collect_collect",
+      "fpl_brief_collect_event_summary",
+      "fpl_brief_collect_fixture_horizon",
+      "fpl_brief_collect_fixture_horizon_is_future",
+      "fpl_brief_collect_picks_for",
+      "tests_test_fpl_brief",
+      "tests_test_fpl_brief_leagueanalysistests",
+      "tests_test_fpl_brief_leagueanalysistests_test_compares_shared_players_when_snapshot_matches",
+      "tests_test_fpl_brief_leagueanalysistests_test_http_404_does_not_retry",
+      "tests_test_fpl_brief_leagueanalysistests_test_http_404_does_not_retry_opener",
+      "tests_test_fpl_brief_leagueanalysistests_test_marks_mismatched_snapshots_non_comparable",
+      "tests_test_fpl_brief_leagueanalysistests_test_selects_top_and_nearby_rivals_without_duplicates",
+      "tests_test_fpl_brief_leagueanalysistests_test_standings_collects_multiple_pages",
+      "tests_test_fpl_brief_leagueanalysistests_test_standings_collects_multiple_pages_get",
+      "time",
+      "urllib_error",
+      "urllib_request"
+    ],
+    "2": [
+      "dashboard",
+      "dashboard_default_plans",
+      "dashboard_evaluate_plan",
+      "dashboard_handler",
+      "dashboard_handler_api_data",
+      "dashboard_handler_body",
+      "dashboard_handler_do_get",
+      "dashboard_handler_do_post",
+      "dashboard_handler_do_post_refresh",
+      "dashboard_handler_do_put",
+      "dashboard_handler_log_message",
+      "dashboard_handler_send_json",
+      "dashboard_handler_serve_static",
+      "dashboard_load_plans",
+      "dashboard_main",
+      "dashboard_plans_path",
+      "dashboard_player_map",
+      "dashboard_rationale_2",
+      "dashboard_rationale_55",
+      "dashboard_research_result",
+      "dashboard_snapshot_status",
+      "dashboard_validate_plan",
+      "http",
+      "http_server",
+      "mimetypes",
+      "simplehttprequesthandler",
+      "subprocess",
+      "threading",
+      "urllib_parse",
+      "uuid"
+    ],
+    "3": [
+      "dashboard_app",
+      "dashboard_app_activate",
+      "dashboard_app_add",
+      "dashboard_app_date",
+      "dashboard_app_esc",
+      "dashboard_app_event",
+      "dashboard_app_load",
+      "dashboard_app_money",
+      "dashboard_app_overview",
+      "dashboard_app_players",
+      "dashboard_app_pool",
+      "dashboard_app_pos",
+      "dashboard_app_rail",
+      "dashboard_app_refresh",
+      "dashboard_app_render",
+      "dashboard_app_risk",
+      "dashboard_app_rivals",
+      "dashboard_app_row",
+      "dashboard_app_save",
+      "dashboard_app_squad",
+      "dashboard_app_state",
+      "dashboard_app_status",
+      "dashboard_app_teams",
+      "dashboard_app_wildcard"
+    ],
+    "4": [
+      "datetime",
+      "fpl_brief_decision",
+      "fpl_brief_decision_assess",
+      "fpl_brief_decision_parse_time",
+      "fpl_brief_decision_rationale_1",
+      "fpl_brief_decision_rationale_34",
+      "fpl_brief_decision_rationale_9",
+      "fpl_brief_decision_snapshot_freshness",
+      "fpl_brief_jev",
+      "fpl_brief_jev_rationale_1",
+      "fpl_brief_jev_status",
+      "sys",
+      "tests_test_dashboard",
+      "tests_test_decision",
+      "tests_test_decision_decisiontests",
+      "tests_test_decision_decisiontests_setup",
+      "tests_test_decision_decisiontests_test_availability_rule_takes_priority_when_safe_to_decide",
+      "tests_test_decision_decisiontests_test_current_complete_snapshot_recommends_holding_flexibility",
+      "tests_test_decision_decisiontests_test_deadline_passed_blocks_recommendation",
+      "tests_test_decision_decisiontests_test_snapshot_freshness_handles_invalid_timestamp",
+      "tests_test_decision_decisiontests_test_stale_snapshot_blocks_recommendation",
+      "tests_test_fetch_fpl",
+      "unittest"
+    ],
+    "5": [
+      "fpl_brief_candidates",
+      "fpl_brief_candidates_fixture_difficulties",
+      "fpl_brief_candidates_is_available",
+      "fpl_brief_candidates_lens",
+      "fpl_brief_candidates_player_map",
+      "fpl_brief_candidates_rationale_1",
+      "fpl_brief_candidates_rationale_31",
+      "fpl_brief_candidates_xgi_per_90",
+      "tests_test_research_candidates_candidatelenstests",
+      "tests_test_research_candidates_candidatelenstests_setup",
+      "tests_test_research_candidates_candidatelenstests_test_lens_requires_an_owned_outgoing_player",
+      "tests_test_research_candidates_candidatelenstests_test_lens_returns_only_legal_available_same_position_players"
+    ],
+    "6": [
+      "tests_test_fetch_fpl_digesttests",
+      "tests_test_fetch_fpl_digesttests_setup",
+      "tests_test_fetch_fpl_digesttests_test_digest_handles_missing_rank_and_includes_injury_news",
+      "tests_test_fetch_fpl_digesttests_test_digest_labels_current_and_next_gameweeks",
+      "tests_test_fetch_fpl_digesttests_test_gameweeks_handles_preseason_and_season_end",
+      "tests_test_fetch_fpl_digesttests_test_get_retries_transient_failures",
+      "tests_test_fetch_fpl_digesttests_test_get_retries_transient_failures_enter",
+      "tests_test_fetch_fpl_digesttests_test_get_retries_transient_failures_exit",
+      "tests_test_fetch_fpl_digesttests_test_get_retries_transient_failures_opener",
+      "tests_test_fetch_fpl_digesttests_test_get_retries_transient_failures_read"
+    ],
+    "7": [
+      "dashboard_desk_tools",
+      "dashboard_desk_tools_activate",
+      "dashboard_desk_tools_addview",
+      "dashboard_desk_tools_openlens",
+      "dashboard_desk_tools_openresearch",
+      "dashboard_desk_tools_runlens",
+      "dashboard_desk_tools_squadoptions"
+    ],
+    "8": [
+      "tests_test_dashboard_dashboardtests",
+      "tests_test_dashboard_dashboardtests_setup",
+      "tests_test_dashboard_dashboardtests_test_evaluate_plan_returns_current_catalog_totals",
+      "tests_test_dashboard_dashboardtests_test_snapshot_status_accepts_current_snapshot",
+      "tests_test_dashboard_dashboardtests_test_snapshot_status_handles_invalid_time",
+      "tests_test_dashboard_dashboardtests_test_snapshot_status_marks_old_snapshot_stale",
+      "tests_test_dashboard_dashboardtests_test_validate_plan_rejects_duplicate_and_unknown_players"
+    ],
+    "9": [
+      "dashboard_decision_states",
+      "dashboard_decision_states_clearscenarioerror",
+      "dashboard_decision_states_decisionfeedback",
+      "dashboard_decision_states_scenarioerror",
+      "dashboard_decision_states_snapshotfeedback"
+    ],
+    "10": [
+      "fetch_fpl_fetcherror",
+      "fetch_fpl_get",
+      "fetch_fpl_py_runtimeerror",
+      "fetch_fpl_rationale_35",
+      "fetch_fpl_rationale_39"
+    ],
+    "11": [
+      "fpl_brief_init",
+      "fpl_brief_init_rationale_1"
+    ],
+    "12": [
+      "run_refresh"
+    ],
+    "13": [
+      "run_research"
+    ],
+    "14": [
+      "start_dashboard"
+    ]
+  },
+  "cohesion": {
+    "0": 0.1,
+    "1": 0.11397849462365592,
+    "2": 0.11494252873563218,
+    "3": 0.21014492753623187,
+    "4": 0.14624505928853754,
+    "5": 0.24242424242424243,
+    "6": 0.2,
+    "7": 0.47619047619047616,
+    "8": 0.2857142857142857,
+    "9": 0.5,
+    "10": 0.4,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0
+  },
+  "gods": [
+    {
+      "id": "fpl_brief_decision_assess",
+      "label": "assess()",
+      "degree": 14
+    },
+    {
+      "id": "fetch_fpl_main",
+      "label": "main()",
+      "degree": 13
+    },
+    {
+      "id": "fpl_brief_research_evidence_status",
+      "label": "evidence_status()",
+      "degree": 12
+    },
+    {
+      "id": "dashboard_app_render",
+      "label": "render()",
+      "degree": 11
+    },
+    {
+      "id": "fpl_brief_candidates_lens",
+      "label": "lens()",
+      "degree": 11
+    },
+    {
+      "id": "fpl_brief_storage_read_json",
+      "label": "read_json()",
+      "degree": 11
+    },
+    {
+      "id": "dashboard_handler",
+      "label": "Handler",
+      "degree": 10
+    },
+    {
+      "id": "dashboard_app_esc",
+      "label": "esc()",
+      "degree": 9
+    },
+    {
+      "id": "fpl_brief_api_client",
+      "label": "Client",
+      "degree": 9
+    },
+    {
+      "id": "fpl_brief_collect_collect",
+      "label": "collect()",
+      "degree": 9
+    }
+  ],
+  "surprises": [
+    {
+      "source": "snapshot_status()",
+      "target": "snapshot_freshness()",
+      "source_files": [
+        "dashboard.py",
+        "fpl_brief/decision.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `snapshot_status()` unexpectedly reaches hub `snapshot_freshness()`"
+    },
+    {
+      "source": "load_plans()",
+      "target": "read_json()",
+      "source_files": [
+        "dashboard.py",
+        "fpl_brief/storage.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "research_result()",
+      "target": "evidence_status()",
+      "source_files": [
+        "dashboard.py",
+        "fpl_brief/research.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "research_result()",
+      "target": "load_packet()",
+      "source_files": [
+        "dashboard.py",
+        "fpl_brief/research.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "main()",
+      "target": "meaningful_changes()",
+      "source_files": [
+        "fetch_fpl.py",
+        "fpl_brief/analyze.py"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "connects across different repos/directories; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `assess()` connect `Community 4` to `Community 0`, `Community 2`?",
+      "why": "High betweenness centrality (0.069) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `DigestTests` connect `Community 6` to `Community 4`?",
+      "why": "High betweenness centrality (0.068) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `Client` connect `Community 1` to `Community 0`?",
+      "why": "High betweenness centrality (0.055) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `state`, `pos` to the rest of the system?",
+      "why": "2 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 0` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.1 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 1` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.11397849462365592 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 2` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.11494252873563218 - nodes in this community are weakly interconnected."
+    }
+  ]
+}

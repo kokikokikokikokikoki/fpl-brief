@@ -1,0 +1,56 @@
+.squad-panel { padding: 19px; }
+.squad-heading { align-items: center; }
+.squad-heading p { margin-top: 5px; }
+.squad-view-toggle { display: inline-flex; flex: 0 0 auto; gap: 6px; }
+.squad-view-toggle button[aria-pressed="true"] { color: var(--text); background: var(--panel-2); border-color: var(--green); }
+.squad-caveat { max-width: 78ch; margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.squad-pitch { position: relative; display: grid; gap: 12px; overflow: hidden; padding: 16px 10px; border: 1px solid var(--rule); border-radius: 10px; background-color: var(--enamel); background-image: repeating-linear-gradient(0deg, transparent 0, transparent 74px, rgb(20 120 110 / 6%) 75px, rgb(20 120 110 / 6%) 150px); }
+.pitch-midline { position: absolute; inset: 50% 0 auto; height: 1px; background: var(--pitch-line); pointer-events: none; }
+.formation-line { position: relative; z-index: 1; min-width: 0; }
+.formation-line > h3 { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0 0 8px; color: var(--ink-soft); font-size: 14px; font-weight: 700; }
+.formation-line > h3 span { color: var(--text); font-variant-numeric: tabular-nums; }
+.formation-line-players { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.formation-count-1 { grid-template-columns: minmax(0, 180px); justify-content: center; }
+.formation-count-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 50%; max-width: 340px; margin-inline: auto; }
+.formation-count-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 75%; max-width: 620px; margin-inline: auto; }
+.formation-player { display: flex; min-width: 0; min-height: 128px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px 7px; border: 1px solid var(--rule); border-radius: 12px; background: #FFFFFF; box-shadow: var(--rest); text-align: center; }
+.formation-player.squad-risk { border-color: var(--caution); background: #FDF6EA; }
+.formation-player-role { color: var(--ink-soft); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.formation-player-name { width: 100%; overflow-wrap: anywhere; color: var(--ink); font: 700 17px/1.2 var(--display); }
+.formation-player-team,.formation-availability,.formation-captain { max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
+.formation-player-team { color: var(--ink-soft); }
+.formation-availability { color: var(--ink); }
+.squad-risk .formation-availability,.squad-risk-text { color: var(--caution); font-weight: 700; }
+.squad-clear-text { color: var(--marker-green); }
+.formation-captain { color: var(--marker-red); font-weight: 750; }
+.formation-player-stats { display: grid; gap: 2px; color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.formation-player-stats > span { max-width: 100%; overflow-wrap: anywhere; }
+.squad-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 17px 0 8px; }
+.squad-section-heading h3 { margin: 0; }
+.squad-section-heading p,.squad-empty,.squad-list-note { color: var(--muted); font-size: 13px; }
+.squad-section-heading p { margin: 0; }
+.squad-bench-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.squad-bench-list li { min-width: 0; }
+.squad-bench-list .formation-player { min-height: 128px; }
+.squad-list-view caption { padding: 0 8px 10px; color: var(--muted); text-align: left; }
+.squad-list-note { margin: 12px 0 0; }
+.squad-list-view[hidden],.squad-pitch-view[hidden] { display: none; }
+.squad-view-toggle button:focus-visible { outline-color: var(--green); }
+@media (max-width: 600px) {
+  .squad-panel { padding: 15px 12px; }
+  .squad-heading { align-items: flex-start; flex-direction: column; }
+  .squad-view-toggle button { min-height: 42px; }
+  .squad-pitch { gap: 9px; padding: 12px 6px; }
+  .formation-line-players { gap: 4px; }
+  .formation-player { min-height: 118px; padding: 9px 5px; border-radius: 8px; }
+  .formation-player-name { font-size: 14px; }
+  .formation-player-team,.formation-availability,.formation-captain { font-size: 12px; }
+  .formation-player-stats { font-size: 12px; }
+  .formation-line-players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .formation-count-1 { grid-template-columns: minmax(0, 180px); justify-content: center; }
+  .formation-count-2,.formation-count-3 { width: 100%; }
+  .formation-count-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .squad-bench-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .squad-section-heading { align-items: flex-start; flex-direction: column; }
+}
+.formation-player .jersey { width: 48px; height: 48px; margin-bottom: 2px; }

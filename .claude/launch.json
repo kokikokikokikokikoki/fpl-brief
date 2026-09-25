@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fpl-dashboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-c", "import dashboard; dashboard.ThreadingHTTPServer(('127.0.0.1', 8766), dashboard.Handler).serve_forever()"],
+      "port": 8766,
+      "autoPort": false
+    },
+    {
+      "name": "design-mockups",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8790", "--bind", "127.0.0.1", "--directory", ".impeccable/mockups"],
+      "port": 8790,
+      "autoPort": false
+    }
+  ]
+}

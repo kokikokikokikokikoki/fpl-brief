@@ -1,0 +1,277 @@
+{
+ "gw": 6,
+ "deadline": "2026-10-10T10:00:00Z",
+ "formation": "4-4-2",
+ "total": 72.8,
+ "lines": {
+  "GK": [
+   {
+    "id": 597,
+    "name": "Suzuki",
+    "team": "AVL",
+    "role": "GK",
+    "est": 4.0,
+    "flags": [],
+    "blockers": [],
+    "form": "4.0",
+    "price": 50,
+    "news": ""
+   }
+  ],
+  "DEF": [
+   {
+    "id": 391,
+    "name": "Gvardiol",
+    "team": "MCI",
+    "role": "DEF",
+    "est": 7.0,
+    "flags": [],
+    "blockers": [],
+    "form": "7.0",
+    "price": 57,
+    "news": ""
+   },
+   {
+    "id": 449,
+    "name": "Hall",
+    "team": "NEW",
+    "role": "DEF",
+    "est": 7.0,
+    "flags": [],
+    "blockers": [],
+    "form": "7.0",
+    "price": 53,
+    "news": ""
+   },
+   {
+    "id": 112,
+    "name": "Van Hecke",
+    "team": "TOT",
+    "role": "DEF",
+    "est": 5.8,
+    "flags": [],
+    "blockers": [],
+    "form": "5.8",
+    "price": 49,
+    "news": ""
+   },
+   {
+    "id": 115,
+    "name": "De Cuyper",
+    "team": "BHA",
+    "role": "DEF",
+    "est": 5.2,
+    "flags": [],
+    "blockers": [],
+    "form": "5.2",
+    "price": 49,
+    "news": ""
+   }
+  ],
+  "MID": [
+   {
+    "id": 124,
+    "name": "Groß",
+    "team": "BHA",
+    "role": "MID",
+    "est": 11.2,
+    "flags": [],
+    "blockers": [],
+    "form": "11.2",
+    "price": 58,
+    "news": ""
+   },
+   {
+    "id": 399,
+    "name": "Cherki",
+    "team": "MCI",
+    "role": "MID",
+    "est": 6.5,
+    "flags": [],
+    "blockers": [],
+    "form": "6.5",
+    "price": 78,
+    "news": ""
+   },
+   {
+    "id": 480,
+    "name": "Gibbs-White",
+    "team": "NFO",
+    "role": "MID",
+    "est": 6.5,
+    "flags": [],
+    "blockers": [],
+    "form": "6.5",
+    "price": 80,
+    "news": ""
+   },
+   {
+    "id": 40,
+    "name": "Rogers",
+    "team": "CHE",
+    "role": "MID",
+    "est": 5.2,
+    "flags": [],
+    "blockers": [],
+    "form": "5.2",
+    "price": 77,
+    "news": ""
+   }
+  ],
+  "FWD": [
+   {
+    "id": 411,
+    "name": "Haaland",
+    "team": "MCI",
+    "role": "FWD",
+    "est": 9.2,
+    "flags": [],
+    "blockers": [],
+    "form": "9.2",
+    "price": 156,
+    "news": ""
+   },
+   {
+    "id": 346,
+    "name": "Calvert-Lewin",
+    "team": "LEE",
+    "role": "FWD",
+    "est": 5.2,
+    "flags": [],
+    "blockers": [],
+    "form": "5.2",
+    "price": 60,
+    "news": ""
+   }
+  ]
+ },
+ "bench": [
+  {
+   "id": 497,
+   "name": "Dubravka",
+   "team": "TOT",
+   "role": "GK",
+   "est": 0.0,
+   "flags": [],
+   "blockers": [],
+   "form": "0.0",
+   "price": 40,
+   "news": ""
+  },
+  {
+   "id": 8,
+   "name": "Calafiori",
+   "team": "ARS",
+   "role": "DEF",
+   "est": 5.0,
+   "flags": [],
+   "blockers": [],
+   "form": "5.0",
+   "price": 58,
+   "news": ""
+  },
+  {
+   "id": 165,
+   "name": "João Pedro",
+   "team": "CHE",
+   "role": "FWD",
+   "est": 4.1,
+   "flags": [
+    "doubtful: 75% chance"
+   ],
+   "blockers": [],
+   "form": "5.5",
+   "price": 77,
+   "news": "Knee injury - 75% chance of playing"
+  },
+  {
+   "id": 368,
+   "name": "Szoboszlai",
+   "team": "LIV",
+   "role": "MID",
+   "est": 3.0,
+   "flags": [],
+   "blockers": [],
+   "form": "3.0",
+   "price": 70,
+   "news": ""
+  }
+ ],
+ "captain": 124,
+ "vice": 411,
+ "changes": {
+  "source": "your FPL account (captured lineup)",
+  "start": [
+   "Calvert-Lewin"
+  ],
+  "bench": [
+   "Szoboszlai"
+  ],
+  "captain": {
+   "from": "Haaland",
+   "to": "Groß"
+  },
+  "vice": {
+   "from": "Rogers",
+   "to": "Haaland"
+  },
+  "bench_order_changed": true,
+  "none": false
+ },
+ "bb": "Not this week by the rule of thumb: bench estimate total 12.1, and not every bench player is available with a fixture and an FPL estimate of at least 1.",
+ "account": {
+  "ft": 2,
+  "bank": 1,
+  "hit": 4,
+  "value": 1012,
+  "chips": [
+   {
+    "name": "bboost",
+    "status": "available",
+    "played_gameweeks": [],
+    "window": [
+     1,
+     19
+    ],
+    "pending": false
+   },
+   {
+    "name": "3xc",
+    "status": "played",
+    "played_gameweeks": [
+     2
+    ],
+    "window": [
+     1,
+     19
+    ],
+    "pending": false
+   },
+   {
+    "name": "wildcard",
+    "status": "played",
+    "played_gameweeks": [
+     4
+    ],
+    "window": [
+     2,
+     19
+    ],
+    "pending": false
+   },
+   {
+    "name": "freehit",
+    "status": "available",
+    "played_gameweeks": [],
+    "window": [
+     2,
+     19
+    ],
+    "pending": false
+   }
+  ]
+ },
+ "league": 3,
+ "points": 381,
+ "gap": 11
+}
