@@ -864,3 +864,88 @@ Verify after deploy that `/` returns `401` without credentials and `/healthz` re
   - `log_message` is silenced (`dashboard.py:506-507`), so these failing probes leave no trace in the logs.
 
   This diff tests the hypothesis. If no `health probe ... /healthz` lines appear after deploy, Render is not probing `/healthz`. Check Render → Settings → Health Check Path and the Blueprint sync status. If the lines appear with `-> 200` and the deploy still hangs, the cause is on Render's side, not in this code.
+
+## Sign-in page with session cookie — independent review
+
+**Date:** 2026-09-26
+**Reviewer:** Independent Supervisor/Reviewer (Claude Opus 5.5 subagent, high-risk tier). I did not implement this change.
+**Verdict:** PASS — APPROVED
+
+**Scope:** `git diff HEAD` for `dashboard.py`, `dashboard/app.ts`, `dashboard/index.html`, `dashboard/board.css` and `tests/test_dashboard.py`, plus the new `fpl_brief/web_session.py`. The CI workflow change was pushed separately and is not covered here.
+
+### Attacks tried, all held
+
+I probed a throwaway 127.0.0.1 server started with a test `DASHBOARD_PASSWORD`.
+
+- **Token forgery, extension and tampering.**
+  - The expiry is inside the MAC (`v1.<expiry>`), and the key is derived from the password. `token_valid` checks the format and length, then runs `hmac.compare_digest` on hex strings of equal length before it checks expiry.
+  - Non-ASCII signatures and Unicode-digit expiries such as `²` return False and do not crash.
+  - Rotating the password invalidates every token.
+- **Cookies.**
+  - A quoted value is accepted.
+  - With duplicate `fpl_session` cookies, the last one wins. If the last one is bad, the request is rejected, so the failure is closed.
+  - The cookie is `HttpOnly; SameSite=Lax; Path=/`. `Max-Age` is set only with "remember"; otherwise the token lasts 12 h.
+  - `Secure` is set with `X-Forwarded-Proto: https` or a non-loopback bind, so it is always set on Render (bind `0.0.0.0`), and absent on plain loopback.
+- **Open redirect and header injection via `next`.**
+  - `//evil.com`, `/\evil.com`, `https://…`, `%2F%2Fevil`, a tab, over 512 characters, and CR/LF all fall back to `/`.
+  - `/%2F%2Fevil.com` and `/a%0d%0a…` stay percent-encoded local paths, and no header split occurs.
+  - `GET /login?next=//evil` while signed in goes to `/`.
+- **XSS and clickjacking on the sign-in page.**
+  - `next` is reflected only through `html.escape(quote=True)`, and error texts are constants.
+  - The page runs no script and sends CSP `default-src 'none'` with `frame-ancestors 'none'`, plus `X-Frame-Options: DENY`.
+  - Dashboard pages cannot usefully be framed cross-site, because a `SameSite=Lax` cookie is not sent in a cross-site iframe.
+- **CSRF with a session.**
+  - With a valid session, a POST returns 403 when it has no Origin or Referer, `Origin: null`, a foreign Origin, `https://` on an http host (the port differs), `Referer: http://host:port.evil.com/`, or `Referer: http://x@host:port/`.
+  - Only a matching Origin, or a matching Referer when Origin is absent, reaches the handler.
+  - `onrender.com` is on the Public Suffix List, so sibling apps count as cross-site and Lax withholds the cookie anyway.
+  - Login CSRF is refused when Origin is present. It has no value with a single shared password.
+- **Gate coverage.**
+  - Unauthenticated `GET /` returns 303 to `/login?next=%2F`, and `/api/*` returns 401 JSON with no `WWW-Authenticate`.
+  - PUT returns 401. DELETE, OPTIONS and PATCH return 501 from the base class. HEAD returns 405 for everything except `/healthz`.
+  - `/login/../index.html` and `/healthz/../index.html` return 303, because the open paths are exact matches.
+  - No method reaches data without a session.
+- **Brute force.**
+  - The lockout check runs before the compare. The 11th attempt gets 429 with `Retry-After`, and so does the correct password during a lockout.
+  - An existing session keeps working during a lockout, which improves on Basic auth.
+  - A body over 4 KB gets 413 without being read. A missing `Content-Length` counts as a failed empty password.
+  - With duplicate `password` fields, only the first is used.
+- **Other checks.**
+  - Fail-closed `REQUIRE_PASSWORD`, running with no password locally, and the loopback Host/Origin guards are unchanged, according to the diff and the tests.
+  - The password is never logged, echoed or stored: `log_message` is silenced, and tracebacks show no request body.
+  - The frontend cannot enter a 401 loop, because `/login` is server-rendered and has no script. A 401 causes one navigation to a form.
+
+### Findings (all Low or Info; none blocks release)
+
+1. **Low — `dashboard.py:640` (reached from `:694`).**
+   - **Problem:** a `next` value outside Latin-1 crashes a successful sign-in. `safe_next` allows it, and `send_header("Location", …)` raises `UnicodeEncodeError`, so the connection drops with no cookie set. I reproduced this.
+   - **Scenario:** a crafted link such as `/login?next=/%C4%80` stops the owner signing in from that page. It is a nuisance, not a bypass.
+   - **Fix:** make `safe_next` percent-encode or reject non-ASCII.
+2. **Low — `dashboard.py:682`.**
+   - **Problem:** a POST to `/login` with more than 10 fields makes `parse_qs` raise `ValueError`, which nothing catches. The connection drops and a traceback goes to stderr without the body.
+   - **Impact:** no password is tried, so this is not a way around the rate limit.
+   - **Fix:** catch the error and return 400 or 413.
+3. **Low — `fpl_brief/web_session.py:44`.**
+   - **Problem:** `SimpleCookie.load` is all-or-nothing. Another cookie on the same host with a space or a JSON value (for example `a=b c`) hides a valid session, which I reproduced.
+   - **Impact:** sign-in then "succeeds" and lands back on the form. This is not an automatic loop. It matters mainly on `localhost`, where cookies are shared across ports, and not on Render.
+   - **Fix:** split the header on `;` by hand and take the last `fpl_session=` value.
+4. **Low (spec deviation) — `dashboard.py:711`.** Required implementation 3 says an unauthenticated HEAD of a page returns 303. It returns 405 for every path except `/healthz`. No data is exposed, and Render verification uses GET.
+5. **Info.**
+   - Tokens are stateless by design. Logout clears only this browser, and a copied cookie stays valid until it expires (up to 30 d) or the password rotates. Document "rotate the password to sign out everywhere".
+   - `GET /logout` can be triggered cross-site. It is only a nuisance, and the spec requires it.
+   - The lockout check and `record_failure` are not atomic, so parallel bursts can slightly overshoot the limits. The global ceiling still bounds guessing.
+   - The report says 160 Python tests, but I ran 157.
+
+### Checks
+
+- `python -m unittest discover -s tests`: 157 tests, OK.
+- `node --test tests/*.mjs`: 10 pass, 0 fail.
+- `npm run typecheck --prefix dashboard`: clean.
+- `npm run build --prefix dashboard`: built.
+- `git diff --check`: clean.
+- Throwaway 127.0.0.1 probe servers with a test password, as listed above. I did not touch the live Render site, :8765/:8766, `local/private_team.json` or FPL.
+
+### Release note
+
+- Push is allowed.
+- After deploy, verify on Render that `GET /` returns 303 to `/login?next=%2F`, `/api/dashboard` returns 401 with no `WWW-Authenticate`, and `/healthz` returns 200. Then the Overseer signs in, and the cookie should show `Secure`.
+- Findings 1–3, plus optionally 4, can go in a small follow-up hardening task. It stays within `fpl_brief/web_session.py`, `dashboard.py` and `tests/test_dashboard.py`.

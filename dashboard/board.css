@@ -181,3 +181,6 @@ tr:last-child td { border-bottom: 0; }
 #research a { color: var(--ink); text-decoration: none; }
 #research a:hover { text-decoration: underline; }
 #research .panel-head + * , #research .button-primary { margin-top: 12px; }
+
+.sign-out { color: var(--ink); font-weight: 700; font-size: 15px; text-underline-offset: 3px; }
+.sign-out[hidden] { display: none; }

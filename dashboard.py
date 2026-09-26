@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Local, read-only dashboard for the FPL Brief snapshot."""
 
-import base64
-import binascii
 import hmac
 import json
 import math
@@ -18,7 +16,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from fpl_brief.config import load as load_config
 from fpl_brief.decision import assess, snapshot_freshness
@@ -26,6 +24,7 @@ from fpl_brief.candidates import lens
 from fpl_brief import lineup as lineup_helper
 from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
+from fpl_brief import web_session
 from fpl_brief.research import evidence_status, load_packet
 from fpl_brief.storage import read_json
 
@@ -57,15 +56,6 @@ def auth_settings(environ=None):
     return environ.get("DASHBOARD_PASSWORD") or "", environ.get("REQUIRE_PASSWORD") == "1"
 
 
-def basic_password(header):
-    """Extract the password from an HTTP Basic Authorization header, or None."""
-    if not header or not header[:6].lower() == "basic ":
-        return None
-    try:
-        decoded = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return None
-    return decoded.split(":", 1)[1] if ":" in decoded else None
 JOBS = {}
 MAX_PLANS = 4
 MISSING_BUNDLE_MESSAGE = (
@@ -598,16 +588,24 @@ class Handler(SimpleHTTPRequestHandler):
         chain = ",".join(entry.strip() for entry in (self.headers.get("X-Forwarded-For") or "").split(",") if entry.strip())
         return f"{chain[:256]}|{self.client_address[0]}"
 
-    def gate(self, path):
-        """Allow the request, or answer 401/429/503 when the hosted password is required."""
-        if path == "/healthz":
-            return True
-        password, required = auth_settings()
-        if not password:
-            if required:
-                self.send_text("Password protection is required but DASHBOARD_PASSWORD is not configured.\n", HTTPStatus.SERVICE_UNAVAILABLE)
-                return False
-            return True
+    def secure_request(self):
+        """Mark cookies Secure when served over HTTPS (Render's proxy) or anywhere off this machine."""
+        return (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" or self.server.server_address[0] not in LOOPBACK_HOSTS
+
+    def same_origin(self):
+        """True when Origin (or, failing that, Referer) names this request's Host."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not host:
+            return False
+        for header in ("Origin", "Referer"):
+            value = self.headers.get(header)
+            if value:
+                parsed = urlparse(value)
+                return parsed.scheme in ("http", "https") and parsed.netloc.lower() == host
+        return False
+
+    def lockout_seconds(self):
+        """Seconds left if this client or the whole site has hit the failed sign-in limits, else 0."""
         client, now = self.client_id(), time.monotonic()
         with AUTH_LOCK:
             recent = [stamp for stamp in AUTH_FAILURES.get(client, []) if now - stamp < AUTH_WINDOW_SECONDS]
@@ -617,31 +615,86 @@ class Handler(SimpleHTTPRequestHandler):
                 AUTH_FAILURES.pop(client, None)
             AUTH_GLOBAL_FAILURES[:] = [stamp for stamp in AUTH_GLOBAL_FAILURES if now - stamp < AUTH_WINDOW_SECONDS]
             blocking = recent if len(recent) >= AUTH_MAX_FAILURES else AUTH_GLOBAL_FAILURES if len(AUTH_GLOBAL_FAILURES) >= AUTH_GLOBAL_MAX_FAILURES else None
-            if blocking:
-                self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
-                self.send_header("Retry-After", str(int(AUTH_WINDOW_SECONDS - (now - blocking[0])) + 1))
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return False
-        header = self.headers.get("Authorization")
-        supplied = basic_password(header)
-        if supplied is not None and hmac.compare_digest(supplied.encode("utf-8"), password.encode("utf-8")):
-            return True
-        if header:
-            with AUTH_LOCK:
-                if client not in AUTH_FAILURES and len(AUTH_FAILURES) >= AUTH_MAX_CLIENTS:
-                    AUTH_FAILURES.pop(next(iter(AUTH_FAILURES)))
-                AUTH_FAILURES.setdefault(client, []).append(now)
-                AUTH_GLOBAL_FAILURES.append(now)
-        body = b"Sign in to view this FPL Brief dashboard.\n"
-        self.send_response(HTTPStatus.UNAUTHORIZED)
-        self.send_header("WWW-Authenticate", 'Basic realm="FPL Brief", charset="UTF-8"')
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
+            return int(AUTH_WINDOW_SECONDS - (now - blocking[0])) + 1 if blocking else 0
+
+    def record_failure(self):
+        client, now = self.client_id(), time.monotonic()
+        with AUTH_LOCK:
+            if client not in AUTH_FAILURES and len(AUTH_FAILURES) >= AUTH_MAX_CLIENTS:
+                AUTH_FAILURES.pop(next(iter(AUTH_FAILURES)))
+            AUTH_FAILURES.setdefault(client, []).append(now)
+            AUTH_GLOBAL_FAILURES.append(now)
+
+    def send_login(self, status=HTTPStatus.OK, next_path="/", error="", extra_headers=None):
+        content = web_session.login_page(next_path, error).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        for key, value in {**web_session.LOGIN_HEADERS, **(extra_headers or {})}.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(content)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(content)
+
+    def redirect(self, location, cookie=None):
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def gate(self, path, method="GET"):
+        """Allow the request, or answer for it (sign-in redirect, 401, 403, 503) when a hosted password is set."""
+        if path == "/healthz" or path in ("/login", "/logout"):
+            return True
+        password, required = auth_settings()
+        if not password:
+            if required:
+                self.send_text("Password protection is required but DASHBOARD_PASSWORD is not configured.\n", HTTPStatus.SERVICE_UNAVAILABLE)
+                return False
+            return True
+        if web_session.token_valid(password, web_session.cookie_token(self.headers.get("Cookie"))):
+            if method in ("POST", "PUT") and not self.same_origin():
+                self.send_json({"error": "Actions only work from this dashboard's own pages."}, HTTPStatus.FORBIDDEN)
+                return False
+            return True
+        if method in ("GET", "HEAD") and not path.startswith("/api/"):
+            target = self.path if self.path.startswith("/") else "/"
+            self.redirect("/login?" + urlencode({"next": web_session.safe_next(target)}))
+            return False
+        self.send_json({"error": "Sign in required.", "login": "/login"}, HTTPStatus.UNAUTHORIZED)
         return False
+
+    def handle_login(self):
+        """POST /login: check the password, set the session cookie, and return to the requested page."""
+        password, _ = auth_settings()
+        if not password:
+            return self.redirect("/")
+        if self.headers.get("Origin") and not self.same_origin():
+            return self.send_login(HTTPStatus.FORBIDDEN, "/", "Sign in from this site's own page.")
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = -1
+        if length < 0 or length > 4096:
+            return self.send_login(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "/", "That request was too large.")
+        try:
+            form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"), keep_blank_values=True, max_num_fields=10)
+        except ValueError:
+            return self.send_login(HTTPStatus.BAD_REQUEST, "/", "That sign-in request was malformed. Try again.")
+        next_path = web_session.safe_next(form.get("next", ["/"])[0])
+        wait = self.lockout_seconds()
+        if wait:
+            minutes = max(1, round(wait / 60))
+            return self.send_login(HTTPStatus.TOO_MANY_REQUESTS, next_path, f"Too many wrong passwords. Try again in about {minutes} minute{'s' if minutes != 1 else ''}.", {"Retry-After": str(wait)})
+        supplied = form.get("password", [""])[0]
+        if not hmac.compare_digest(supplied.encode("utf-8"), password.encode("utf-8")):
+            self.record_failure()
+            return self.send_login(HTTPStatus.UNAUTHORIZED, next_path, "That password isn't right. Try again.")
+        remember = form.get("remember", [""])[0] == "1"
+        token = web_session.make_token(password, remember)
+        return self.redirect(next_path, web_session.set_cookie(token, remember, self.secure_request()))
 
     def health(self, method):
         """Answer health probes (GET or HEAD) without data; log the first few so hosting issues are diagnosable."""
@@ -674,6 +727,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/healthz":
             return self.health("GET")
+        if path in ("/login", "/logout"):
+            password, _ = auth_settings()
+            next_path = web_session.safe_next(parse_qs(parsed.query).get("next", ["/"])[0])
+            if path == "/logout":
+                return self.redirect("/login" if password else "/", web_session.clear_cookie(self.secure_request()))
+            if not password:
+                return self.redirect("/")
+            if web_session.token_valid(password, web_session.cookie_token(self.headers.get("Cookie"))):
+                return self.redirect(next_path)
+            return self.send_login(HTTPStatus.OK, next_path)
         # On a loopback-bound server, refuse API reads addressed to any other hostname (DNS rebinding).
         if path.startswith("/api/") and self.server.server_address[0] in LOOPBACK_HOSTS and not self.host_is_local():
             return self.send_json({"error": "This dashboard only answers on localhost."}, HTTPStatus.FORBIDDEN)
@@ -692,6 +755,7 @@ class Handler(SimpleHTTPRequestHandler):
                                    "lineup": lineup_helper.suggest(snapshot, catalog, private, decision["snapshot_status"]),
                                    "snapshot_status": decision["snapshot_status"], "decision": decision, "research": research,
                                    "team_decision": team_decision,
+                                   "auth": {"enabled": bool(auth_settings()[0])},
                                    "workflow": read_json(ROOT / "data" / "workflow_status.json", default={"schema_version": 1})})
         if path == "/api/research":
             return self.send_json(research_result(load_config(), snapshot))
@@ -737,7 +801,9 @@ class Handler(SimpleHTTPRequestHandler):
         return self.serve_static(path)
 
     def do_POST(self):
-        if not self.gate(urlparse(self.path).path):
+        if urlparse(self.path).path == "/login":
+            return self.handle_login()
+        if not self.gate(urlparse(self.path).path, "POST"):
             return
         # On this machine, only this dashboard's own pages may trigger actions (blocks cross-site and DNS-rebinding posts).
         if self.server.server_address[0] in LOOPBACK_HOSTS and self.path in ("/api/research", "/api/refresh", "/api/plans/compare") and not self.same_origin_local():
@@ -781,7 +847,7 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json({"error": "Unknown endpoint"}, HTTPStatus.NOT_FOUND)
 
     def do_PUT(self):
-        if not self.gate(urlparse(self.path).path):
+        if not self.gate(urlparse(self.path).path, "PUT"):
             return
         return self.send_json({"error": "Drafts are device-local; server plan writes are disabled."}, HTTPStatus.METHOD_NOT_ALLOWED)
 

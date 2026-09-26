@@ -5,14 +5,17 @@ import json
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 from urllib.request import urlopen
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import dashboard
+from fpl_brief import web_session
 
 
 class DashboardTests(unittest.TestCase):
@@ -1139,48 +1142,158 @@ class PasswordGateTests(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
+        self.origin = f"http://127.0.0.1:{self.server.server_port}"
 
-    def request(self, method, path, password=None, raw_auth=None, forwarded=None):
+    def request(self, method, path, cookie=None, body=None, forwarded=None, origin="same", proto=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
-        headers = {"Origin": f"http://127.0.0.1:{self.server.server_port}"}
-        if password is not None:
-            headers["Authorization"] = "Basic " + base64.b64encode(f"any:{password}".encode()).decode()
-        if raw_auth is not None:
-            headers["Authorization"] = raw_auth
+        headers = {}
+        if origin == "same":
+            headers["Origin"] = self.origin
+        elif origin:
+            headers["Origin"] = origin
+        if cookie:
+            headers["Cookie"] = f"fpl_session={cookie}"
         if forwarded:
             headers["X-Forwarded-For"] = forwarded
-        if method == "POST":
-            headers["Content-Length"] = "0"
+        if proto:
+            headers["X-Forwarded-Proto"] = proto
+        payload = body.encode("utf-8") if isinstance(body, str) else body
+        if method in ("POST", "PUT"):
+            headers["Content-Length"] = str(len(payload or b""))
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
         try:
-            connection.request(method, path, headers=headers)
+            connection.request(method, path, body=payload, headers=headers)
             response = connection.getresponse()
-            return response.status, dict(response.getheaders()), response.read().decode("utf-8", "replace")
+            return response.status, {k.lower(): v for k, v in response.getheaders()}, response.read().decode("utf-8", "replace")
         finally:
             connection.close()
+
+    def login(self, password=None, remember=True, next_path="/", forwarded=None, proto=None):
+        form = urlencode({"password": self.PASSWORD if password is None else password, "remember": "1" if remember else "", "next": next_path})
+        return self.request("POST", "/login", body=form, forwarded=forwarded, proto=proto)
+
+    def token_from(self, headers):
+        cookie = headers.get("set-cookie", "")
+        return cookie.split(";")[0].split("=", 1)[1] if cookie.startswith("fpl_session=") else None
 
     def test_open_when_no_password_is_configured(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("DASHBOARD_PASSWORD", None); os.environ.pop("REQUIRE_PASSWORD", None)
             self.assertEqual(self.request("GET", "/api/workflow-status")[0], 200)
+            self.assertEqual(self.request("GET", "/login")[0], 303)
 
-    def test_password_required_for_every_route_except_healthz(self):
+    def test_pages_redirect_to_sign_in_and_api_returns_401_without_a_popup(self):
         with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
-            for method, path in (("GET", "/"), ("GET", "/api/dashboard"), ("GET", "/api/workflow-status"), ("GET", "/api/plan?transfers=1:2"), ("POST", "/api/refresh"), ("PUT", "/api/plans")):
+            status, headers, _ = self.request("GET", "/")
+            self.assertEqual(status, 303)
+            self.assertEqual(headers["location"], "/login?next=%2F")
+            status, headers, _ = self.request("GET", "/assets/x.js?v=1")
+            self.assertEqual((status, headers["location"]), (303, "/login?next=%2Fassets%2Fx.js%3Fv%3D1"))
+            for method, path in (("GET", "/api/dashboard"), ("GET", "/api/plan?transfers=1:2"), ("POST", "/api/refresh"), ("PUT", "/api/plans")):
                 status, headers, body = self.request(method, path)
                 self.assertEqual(status, 401, (method, path))
-                self.assertIn('Basic realm="FPL Brief"', headers.get("WWW-Authenticate", ""))
-                self.assertNotIn(self.PASSWORD, body)
-                self.assertEqual(self.request(method, path, password="wrong")[0], 401, (method, path))
-            status, _, body = self.request("GET", "/api/workflow-status", password=self.PASSWORD)
+                self.assertNotIn("www-authenticate", headers)
+                self.assertIn("Sign in required", body)
+            status, headers, body = self.request("GET", "/login?next=/players")
             self.assertEqual(status, 200)
+            self.assertIn('name="next" value="/players"', body)
+            self.assertIn("frame-ancestors 'none'", headers["content-security-policy"])
+            self.assertEqual(headers["x-frame-options"], "DENY")
+            self.assertEqual(self.request("GET", "/healthz")[0], 200)
+
+    def test_correct_password_sets_a_hardened_cookie_and_returns_to_next(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            status, headers, _ = self.login(next_path="/?view=squad", proto="https")
+            self.assertEqual((status, headers["location"]), (303, "/?view=squad"))
+            cookie = headers["set-cookie"]
+            for flag in ("HttpOnly", "SameSite=Lax", "Path=/", "Secure", f"Max-Age={30 * 24 * 3600}"):
+                self.assertIn(flag, cookie)
+            token = self.token_from(headers)
+            self.assertEqual(self.request("GET", "/api/workflow-status", cookie=token)[0], 200)
+            self.assertEqual(self.request("GET", "/login", cookie=token)[0], 303, "signed-in visitors skip the form")
+            status, headers, _ = self.login(remember=False)
+            self.assertNotIn("Max-Age", headers["set-cookie"])
+            self.assertNotIn("Secure", headers["set-cookie"], "plain http on loopback is not marked Secure")
+
+    def test_wrong_password_shows_an_error_and_sets_nothing(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            status, headers, body = self.login(password="nope")
+            self.assertEqual(status, 401)
+            self.assertNotIn("set-cookie", headers)
+            self.assertIn("password isn", body)
+            self.assertNotIn("nope", body)
             self.assertNotIn(self.PASSWORD, body)
-            self.assertEqual(self.request("GET", "/", raw_auth="Basic !!!notbase64")[0], 401)
-            self.assertEqual(self.request("GET", "/", raw_auth="Bearer " + self.PASSWORD)[0], 401)
-            status, _, body = self.request("GET", "/healthz")
-            self.assertIn(status, (200, 503))
-            self.assertIn(body.strip(), ("ok", "frontend bundle missing"))
-            self.assertEqual(self.request("HEAD", "/config.json")[0], 405)
-            self.assertEqual(self.request("HEAD", "/healthz")[0], 200)
+
+    def test_tampered_expired_and_rotated_tokens_are_rejected(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            token = self.token_from(self.login()[1])
+            expiry, signature = token.split(".")
+            for bad in (f"{int(expiry) + 999}.{signature}", f"{expiry}.{'0' * 64}", "garbage", f"{expiry}.{signature}x", ""):
+                self.assertEqual(self.request("GET", "/api/workflow-status", cookie=bad)[0], 401, bad)
+            expired = web_session.make_token(self.PASSWORD, False, now=time.time() - 13 * 3600)
+            self.assertEqual(self.request("GET", "/api/workflow-status", cookie=expired)[0], 401)
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": "a brand new password"}):
+            self.assertEqual(self.request("GET", "/api/workflow-status", cookie=token)[0], 401, "changing the password signs everyone out")
+
+    def test_next_is_limited_to_local_paths(self):
+        for value in ("//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "evil", "/ok\r\nSet-Cookie: x=1", "/" + "a" * 600):
+            self.assertEqual(web_session.safe_next(value), "/", value)
+        self.assertEqual(web_session.safe_next("/players?x=1"), "/players?x=1")
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            self.assertEqual(self.login(next_path="//evil.example")[1]["location"], "/")
+            self.assertIn('value="/"', self.request("GET", "/login?next=https://evil.example")[2])
+
+    def test_signed_in_actions_must_come_from_this_site(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            token = self.token_from(self.login()[1])
+            self.assertEqual(self.request("PUT", "/api/plans", cookie=token, origin="https://evil.example")[0], 403)
+            self.assertEqual(self.request("PUT", "/api/plans", cookie=token, origin=None)[0], 403)
+            self.assertEqual(self.request("PUT", "/api/plans", cookie=token)[0], 405, "same-origin reaches the handler")
+            self.assertEqual(self.request("POST", "/login", body="password=x", origin="https://evil.example")[0], 403)
+
+    def test_review_edge_cases_do_not_block_sign_in(self):
+        self.assertEqual(web_session.safe_next("/Ā"), "/", "non-ASCII next falls back safely")
+        self.assertEqual(web_session.cookie_token('a=b c; other={"x": 1}; fpl_session=abc.def'), "abc.def", "malformed neighbours don't hide the session")
+        self.assertEqual(web_session.cookie_token('fpl_session="q.v"'), "q.v")
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            status, headers, _ = self.login(next_path="/Ā")
+            self.assertEqual((status, headers["location"]), (303, "/"))
+            crowded = urlencode([("password", self.PASSWORD)] + [(f"f{i}", "x") for i in range(12)])
+            self.assertEqual(self.request("POST", "/login", body=crowded)[0], 400)
+            token = self.token_from(self.login()[1])
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+            try:
+                connection.request("GET", "/api/workflow-status", headers={"Cookie": f"junk=a b c; fpl_session={token}"})
+                self.assertEqual(connection.getresponse().status, 200)
+            finally:
+                connection.close()
+
+    def test_logout_clears_the_cookie(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            status, headers, _ = self.request("GET", "/logout")
+            self.assertEqual((status, headers["location"]), (303, "/login"))
+            self.assertIn("Max-Age=0", headers["set-cookie"])
+
+    def test_failed_sign_ins_are_rate_limited_per_client_and_globally(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            for _ in range(dashboard.AUTH_MAX_FAILURES):
+                self.assertEqual(self.login(password="guess", forwarded="203.0.113.9")[0], 401)
+            status, headers, body = self.login(forwarded="203.0.113.9")
+            self.assertEqual(status, 429)
+            self.assertIn("retry-after", headers)
+            self.assertIn("Too many wrong passwords", body)
+            self.assertEqual(self.login(forwarded="198.51.100.7")[0], 303, "other clients unaffected")
+            with patch.object(dashboard.time, "monotonic", return_value=dashboard.time.monotonic() + dashboard.AUTH_WINDOW_SECONDS + 1):
+                self.assertEqual(self.login(forwarded="203.0.113.9")[0], 303)
+            dashboard.AUTH_FAILURES.clear(); dashboard.AUTH_GLOBAL_FAILURES.clear()
+            for _ in range(12):
+                self.login(password="guess", forwarded="198.51.100.77, 203.0.113.60")
+            self.assertEqual(self.login(forwarded="203.0.113.61")[0], 303, "a spoofed chain cannot lock out another visitor")
+            dashboard.AUTH_FAILURES.clear(); dashboard.AUTH_GLOBAL_FAILURES.clear()
+            with patch.object(dashboard, "AUTH_GLOBAL_MAX_FAILURES", 15):
+                for i in range(15):
+                    self.login(password="guess", forwarded=f"192.0.2.{i}")
+                self.assertEqual(self.login(forwarded="192.0.2.200")[0], 429)
 
     def test_fails_closed_when_required_but_unset(self):
         with patch.dict(os.environ, {"REQUIRE_PASSWORD": "1"}):
@@ -1190,48 +1303,20 @@ class PasswordGateTests(unittest.TestCase):
             self.assertIn("not configured", body)
             self.assertIn(self.request("GET", "/healthz")[0], (200, 503))
 
-    def test_repeated_failures_are_rate_limited_per_client_and_expire(self):
-        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
-            for _ in range(dashboard.AUTH_MAX_FAILURES):
-                self.assertEqual(self.request("GET", "/", password="guess", forwarded="1.2.3.4, 203.0.113.9")[0], 401)
-            status, headers, _ = self.request("GET", "/", password=self.PASSWORD, forwarded="1.2.3.4, 203.0.113.9")
-            self.assertEqual(status, 429)
-            self.assertIn("Retry-After", headers)
-            self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="1.2.3.4, 198.51.100.7")[0], 200, "other clients unaffected")
-            with patch.object(dashboard.time, "monotonic", return_value=dashboard.time.monotonic() + dashboard.AUTH_WINDOW_SECONDS + 1):
-                self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="1.2.3.4, 203.0.113.9")[0], 200)
-            self.assertEqual(self.request("GET", "/")[0], 401, "the bare challenge (no header) is not counted as a failure")
-
-    def test_spoofed_forwarded_entries_cannot_evade_or_frame_a_client(self):
-        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
-            with patch.object(dashboard, "AUTH_GLOBAL_MAX_FAILURES", 20):
-                statuses = [self.request("GET", "/", password="guess", forwarded=f"10.0.0.{i}, 203.0.113.50")[0] for i in range(25)]
-            self.assertIn(429, statuses, "rotating client-supplied entries is still capped by the global ceiling")
-            dashboard.AUTH_FAILURES.clear(); dashboard.AUTH_GLOBAL_FAILURES.clear()
-            for _ in range(12):
-                self.request("GET", "/", password="guess", forwarded="198.51.100.77, 203.0.113.60")
-            owner = self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="203.0.113.61")[0]
-            self.assertEqual(owner, 200, "naming the owner's address in a spoofed entry must not lock them out")
-
-    def test_global_ceiling_blocks_distributed_guessing_then_expires(self):
-        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}), patch.object(dashboard, "AUTH_GLOBAL_MAX_FAILURES", 15):
-            for i in range(15):
-                self.assertEqual(self.request("GET", "/", password="guess", forwarded=f"192.0.2.{i}")[0], 401)
-            self.assertEqual(self.request("GET", "/", password="guess", forwarded="192.0.2.200")[0], 429)
-            with patch.object(dashboard.time, "monotonic", return_value=dashboard.time.monotonic() + dashboard.AUTH_WINDOW_SECONDS + 1):
-                self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="192.0.2.201")[0], 200)
-
     def test_static_assets_are_privately_cached_behind_a_password(self):
         with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
             assets = sorted((dashboard.STATIC_DIST / "assets").glob("*.js"))
             if not assets:
                 self.skipTest("frontend not built")
-            status, headers, _ = self.request("GET", f"/assets/{assets[0].name}", password=self.PASSWORD)
+            token = self.token_from(self.login()[1])
+            status, headers, _ = self.request("GET", f"/assets/{assets[0].name}", cookie=token)
             self.assertEqual(status, 200)
-            self.assertTrue(headers.get("Cache-Control", "").startswith("private"), headers.get("Cache-Control"))
+            self.assertTrue(headers.get("cache-control", "").startswith("private"), headers.get("cache-control"))
+            self.assertEqual(self.request("HEAD", "/healthz")[0], 200)
+            self.assertEqual(self.request("HEAD", "/config.json")[0], 405)
 
     def test_failure_table_is_bounded(self):
         with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}), patch.object(dashboard, "AUTH_MAX_CLIENTS", 5):
             for index in range(12):
-                self.request("GET", "/", password="x", forwarded=f"192.0.2.{index}")
+                self.login(password="x", forwarded=f"192.0.2.{index}")
             self.assertLessEqual(len(dashboard.AUTH_FAILURES), 5)

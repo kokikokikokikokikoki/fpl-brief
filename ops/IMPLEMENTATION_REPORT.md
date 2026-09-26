@@ -811,3 +811,73 @@ The site is public with no password, per the Overseer's decision. Auto-deploy ru
 - **First deploy of `1b89488` failed.** Render reported "Timed out after waiting for internal health check … fpl-brief.onrender.com:10000/healthz". Its automatic retry at 11:58 went live, with no code change.
 - **Verified externally at 11:59:** `/`, `/api/dashboard` and assets return **401**; `/healthz` returns **200** with no data.
 - **Follow-up hedge (reviewed PASS, "Health probe fix — review" in ops/REVIEW.md).** `Handler.health()` answers GET and HEAD `/healthz`, and the first 5 probes print "health probe <METHOD> /healthz -> <status>" (method and status only) so future hosting failures are diagnosable. Test: HEAD `/healthz` returns 200. 153 Python tests pass.
+
+## CI fix (2026-09-26)
+
+`.github/workflows/fpl-digest.yml` and `tests.yml` now set up Node 22 (npm cache on `dashboard/package-lock.json`), run `npm ci` and build the dashboard before the tests. `tests.yml` also runs the typecheck and the Node tests.
+
+Cause: since the TypeScript dashboard landed, UI tests need `dashboard/node_modules` and a built `dist/`, so every scheduled digest run failed at "Run offline checks".
+
+Verified: the GitHub Actions run "Tests" on `797edcd` completed with **success**, after five failures before it.
+
+## Sign-in page with session cookie — Programmer handoff
+
+**Date:** 2026-09-26 · **Status:** IN_REVIEW · **Programmer:** Claude Opus 5.5
+
+### Changed paths
+
+- **`fpl_brief/web_session.py` (new).**
+  - **Token.** Stateless `<expiry>.<hex HMAC-SHA256>` keyed by `HMAC(password, "fpl-brief-session-v1")`, so a password change invalidates every session. `make_token` and `token_valid` check the format, compare in constant time and check expiry.
+  - **Cookie.** `cookie_token` reads it with `SimpleCookie`. `set_cookie` sets `HttpOnly`, `SameSite=Lax` and `Path=/`, plus `Max-Age` of 30 days when "remember" is on (otherwise a browser-session cookie with a 12 h token) and `Secure` when requested. `clear_cookie` removes it.
+  - **`safe_next`.** Accepts only a local path: it must start with `/`, not `//` or `/\`, contain no CR, LF, tab or backslash, and be at most 512 characters.
+  - **`login_page`.** Self-contained HTML in the Tactics Board style, with no scripts and all values escaped. `LOGIN_HEADERS`: CSP `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`, `X-Frame-Options: DENY`, `Cache-Control: no-store`, `Referrer-Policy: same-origin`.
+- **`dashboard.py`.** Basic auth is removed (along with the `base64`/`binascii` imports). `gate(path, method)`:
+  - **Always open:** `/healthz`, `/login` and `/logout`.
+  - **No password:** 503 if `REQUIRE_PASSWORD` is set, otherwise open.
+  - **Valid session:** allowed. `POST` and `PUT` also require `same_origin()` (the Origin, or failing that the Referer, host must equal `Host`), otherwise 403.
+  - **Unauthenticated GET or HEAD of a non-API path:** 303 to `/login?next=<safe path>`.
+  - **Anything else:** 401 JSON with no `WWW-Authenticate`.
+
+  **`handle_login` (POST).**
+  - Checks Origin when present. The body is at most 4 KB, parsed with `parse_qs` (`max_num_fields=10`), and `next` is sanitised.
+  - `lockout_seconds()` returns 429 with the page and `Retry-After`.
+  - The password is compared in constant time. A failure goes through `record_failure()` (per-client plus global tables) and returns 401 with a generic error.
+  - Success is a 303 to `next` with `Set-Cookie`, marked `Secure` when `X-Forwarded-Proto: https` or the server is not on loopback.
+
+  **Other routes.**
+  - `GET /login` sends a signed-in visitor on to `next` and otherwise shows the form.
+  - `GET /logout` clears the cookie and goes to `/login`.
+  - `/api/dashboard` adds `auth.enabled`.
+  - The existing loopback Host/Origin guards, `/healthz` and HEAD handling are unchanged. JOBS/MAX_PLANS/MISSING_BUNDLE_MESSAGE were accidentally dropped during the edit, then restored and verified by the tests.
+- **Frontend.** `index.html` has a "Sign out" link beside Refresh, hidden unless `auth.enabled`. In `app.ts`, `requestJson` redirects to `/login?next=…` on 401, `DashboardData.auth` is added, and the link is toggled on load. `board.css` styles the link.
+- **Tests.** `PasswordGateTests` was rewritten for sessions (12 tests):
+  - open when unset;
+  - 303 redirects with an encoded `next`;
+  - API/POST/PUT get 401 with no `WWW-Authenticate`;
+  - login page headers;
+  - a correct login sets `HttpOnly`/`SameSite`/`Path`/`Secure`/`Max-Age` and returns to `next`;
+  - the non-remember cookie has no `Max-Age` or `Secure` on plain loopback;
+  - a wrong password gets 401 with no cookie and no echo;
+  - tampered, expired and rotated-password tokens are rejected;
+  - `safe_next` rejects every unsafe case, on both sides;
+  - a signed-in cross-origin or origin-less PUT gets 403, a same-origin one reaches the handler, and a cross-origin login POST gets 403;
+  - logout clears the cookie;
+  - login rate limits: per client, spoof framing, the global ceiling and expiry;
+  - fail-closed;
+  - private asset caching and HEAD;
+  - the failure table stays bounded.
+- **Verification.**
+  - 160 Python tests, Node tests, typecheck, build and `git diff --check` all pass.
+  - Live local check with a throwaway test password on 127.0.0.1:18801, since stopped:
+    - `/` redirects to the sign-in page;
+    - a wrong password shows the error;
+    - the right password lands on the dashboard with "Sign out" visible;
+    - Sign out returns to `/login`.
+
+### Post-review hardening (review Lows 1-3)
+
+- `safe_next` rejects non-ASCII values, so the Location header can no longer raise.
+- `POST /login` with too many fields returns a 400 page instead of dropping the connection.
+- `cookie_token` splits the Cookie header by hand, so malformed unrelated cookies no longer hide the session.
+- Test: `test_review_edge_cases_do_not_block_sign_in`.
+- The full suite passes.

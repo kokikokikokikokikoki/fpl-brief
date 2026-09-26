@@ -144,6 +144,7 @@ export interface DashboardData {
   private_team?: PrivateTeamData;
   lineup?: LineupData;
   config?: { team_id?: number };
+  auth?: { enabled: boolean };
 }
 
 export interface PrivateTeamData {
@@ -271,6 +272,11 @@ function errorMessage(error: unknown): string {
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
+  if (response.status === 401) {
+    // The hosted session expired: go back through the sign-in page and return here afterwards.
+    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    throw new Error("Signing in again…");
+  }
   const body: unknown = await response.json();
   if (!response.ok) {
     const message = isRecord(body) && typeof body.error === "string" ? body.error : "Request failed.";
@@ -543,6 +549,8 @@ async function loadDashboard(): Promise<void> {
     const data = await requestJson<DashboardData>("/api/dashboard");
     data.plans = readDrafts(data.plans, data.catalog);
     state.data = data;
+    const signOut = document.querySelector<HTMLAnchorElement>("#sign-out");
+    if (signOut) signOut.hidden = !data.auth?.enabled;
     render();
   } catch (error) {
     required<HTMLElement>("main").innerHTML = `<div class="empty"><strong>Dashboard unavailable.</strong><span>${escapeHtml(errorMessage(error))} Run fetch_fpl.py, then reload.</span></div>`;

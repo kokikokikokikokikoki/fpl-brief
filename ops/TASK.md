@@ -1,4 +1,42 @@
-# Active task — Password-protect the public site
+# Active task — Sign-in page with session cookie
+
+**Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort (authentication)
+**Status:** APPROVED (independent review 2026-09-26, PASS; see ops/REVIEW.md). Push allowed; verify on Render / = 303 to /login and /healthz = 200, then the Overseer signs in. Optional follow-up: Low findings 1-3 (non-ASCII next crash, >10 login fields, SimpleCookie all-or-nothing).
+**Date:** 2026-09-26
+**Milestone:** Replace the browser's Basic-auth pop-up (unreliable in some browsers; the Overseer saw only the 401 text) with a proper sign-in page and a signed session cookie. Overseer request 2026-09-26.
+
+## Required implementation
+
+1. **Routes.** `GET /login` serves a self-contained sign-in page in the Tactics Board style: a password field, "Keep me signed in for 30 days", and error and lockout messages. `POST /login` accepts form fields `password`, `remember` and `next`, with a body of at most 4 KB. `GET /logout` clears the session.
+2. **Session.** The cookie `fpl_session` holds `<expiry>.<HMAC-SHA256(key, "v1.<expiry>")>`, where `key` is derived from `DASHBOARD_PASSWORD`, so changing the password invalidates every session. Expiry is 30 days with "remember" (with `Max-Age`), otherwise 12 hours (a browser-session cookie). Flags: `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` whenever the request arrived over HTTPS or the server is not on loopback.
+3. **Gate.**
+   - Always open: `/healthz`, `GET /login`, `POST /login`, `GET /logout`.
+   - Everything else requires a valid session.
+   - Unauthenticated `GET` or `HEAD` of a page returns `303` to `/login?next=<path>`. `/api/*` and POSTs return `401` JSON with no `WWW-Authenticate`, so no browser pop-up appears.
+   - `POST` or `PUT` with a session must also be same-origin (the `Origin` or `Referer` host equals `Host`), otherwise `403`.
+   - Basic auth is removed.
+4. **Brute force.** The per-client and global limits count failed `POST /login` attempts. When a limit is hit, the page shows the retry time and returns `429`.
+5. **Safety.**
+   - `next` must be a local path: it starts with `/`, not `//` or `/\`, and has no scheme. Anything else falls back to `/`.
+   - The sign-in page is sent with CSP `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'`, plus `X-Frame-Options: DENY` and `Cache-Control: no-store`.
+   - The password is never logged, echoed or stored.
+6. **Frontend.** `/api/dashboard` reports `auth.enabled`. The rail shows a "Sign out" link when it is true. `requestJson` sends the browser to `/login?next=…` on a `401`.
+7. **Unchanged.** `REQUIRE_PASSWORD` still fails closed, and local runs with no password are unaffected.
+8. **Tests** cover: redirect and `401` behaviour, a correct and a wrong login, the cookie flags, expiry, tampering, password rotation, `next` sanitising, rate limits on login, same-origin POST with a session, logout, and the no-password and fail-closed paths.
+
+## Allowed paths
+
+`dashboard.py`, `fpl_brief/web_session.py` (new), `dashboard/app.ts`, `dashboard/index.html`, `dashboard/board.css`, `tests/test_dashboard.py`, `README.md`, and `ops/IMPLEMENTATION_REPORT.md`.
+
+## Release boundary
+
+- Push after the independent review passes.
+- Verify on Render that `/` returns `303` to `/login` and `/healthz` returns `200`.
+- The Overseer signs in.
+
+---
+
+# Closed task — Password-protect the public site
 
 **Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort (authentication on a public deployment)
 **Status:** APPROVED (independent re-review 2026-09-26, PASS; see ops/REVIEW.md). Push allowed; the Overseer sets DASHBOARD_PASSWORD in Render, then verify / = 401 and /healthz = 200.
