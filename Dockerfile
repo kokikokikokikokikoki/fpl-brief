@@ -11,6 +11,8 @@ FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN useradd --create-home --uid 10001 fpl
 WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fpl:fpl dashboard.py fetch_fpl.py config.json digest.md ./
 COPY --chown=fpl:fpl fpl_brief/ ./fpl_brief/
 COPY --chown=fpl:fpl data/ ./data/

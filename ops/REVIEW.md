@@ -949,3 +949,141 @@ I probed a throwaway 127.0.0.1 server started with a test `DASHBOARD_PASSWORD`.
 - Push is allowed.
 - After deploy, verify on Render that `GET /` returns 303 to `/login?next=%2F`, `/api/dashboard` returns 401 with no `WWW-Authenticate`, and `/healthz` returns 200. Then the Overseer signs in, and the cookie should show `Secure`.
 - Findings 1–3, plus optionally 4, can go in a small follow-up hardening task. It stays within `fpl_brief/web_session.py`, `dashboard.py` and `tests/test_dashboard.py`.
+
+## Crowd data + in-app Jev — independent review
+
+**Date:** 2026-09-26
+**Reviewer:** independent Supervisor/Reviewer subagent (Claude Opus 5.5), HIGH-RISK tier; did not implement the task.
+**Verdict:** FAIL — CHANGES_REQUESTED
+
+The Jev core is well built: the key never leaves the process, SDK errors are mapped to fixed messages (`from None`), the broad `except Exception` in the job swallows details without logging, the answer is fully escaped, links are http(s)-only on both sides, and the context is built only from server data. One gap blocks the release: the paid endpoint is not actually bound to "signed-in session + same origin" in every deployment.
+
+### Findings
+
+1. **Medium — `/api/jev` is open and cross-site-triggerable on any non-loopback bind without a password.**
+   - **Where:** `dashboard.py` `gate()` (~l.704-712) returns True when `DASHBOARD_PASSWORD` is unset and `REQUIRE_PASSWORD != "1"`. The `same_origin_local` check in `do_POST` (~l.868) only runs when bound to loopback. `start_jev` (~l.588) adds no check of its own and does not require `Content-Type: application/json`.
+   - **Scenario:**
+     - `docker run -e PORT=8080 -e ANTHROPIC_API_KEY=... -p 8080:8080 image` (or any host without `REQUIRE_PASSWORD=1`).
+     - Any web page the owner visits (or anyone on the network) sends a CORS-simple `text/plain` POST with `{"question":"..."}`, with no preflight.
+     - Each request spends a paid Opus + web-search call, up to the daily cap.
+   - **Reproduced** on a throwaway server bound to 127.0.0.2 with a mocked `ask`. `Origin: https://evil.example`, `Content-Type: text/plain` returned **202**, and the cap was consumed. The same request on 127.0.0.1 correctly returned 403.
+   - Render itself is fail-closed (`render.yaml` sets `REQUIRE_PASSWORD=1`), so today's hosted site is not exposed. But TASK §5 requires a signed-in session and same origin, and the image is portable.
+   - **Fix:** in `start_jev` (or `do_POST`), refuse with 403 unless either a password is configured (the gate has then already enforced session + same origin) or the server is loopback-bound and `same_origin_local()` passes. Optionally also require `application/json`. Add a test for the non-loopback, no-password case.
+2. **Low — timeout and retry budget is out of line with the UI.**
+   - **Where:** `fpl_brief/jev_ask.py:108` uses `timeout=120`, `max_retries=2` (the SDK retries timeouts), with up to 4 calls when `pause_turn` continues.
+   - **Worst case:** about 24 minutes of wall-clock, and a timed-out request may be billed and then re-run.
+   - **Client side:** the client stops polling at about 180 s (`dashboard/crowd-view.ts:138`) while the job keeps running and spending.
+   - **Suggestion:** `max_retries=1` (or 0), and bound total job time to about 170 s. Streaming would be the SDK-recommended way to avoid HTTP timeouts on long server-tool turns.
+3. **Low — `pause_turn` exhaustion returns partial text as the answer.**
+   - **Where:** `fpl_brief/jev_ask.py:127-149`. If the 4th response is still `pause_turn`, whatever preamble text it holds is returned as a "complete" answer. Verified with a fake client: `answer: "partial preamble"`, 4 calls.
+   - This contradicts the report's "answer comes back empty with a friendly error".
+   - **Fix:** raise `JevError` when the final `stop_reason` is still `pause_turn`.
+   - The continuation shape itself matches the documented pattern: re-send the user turn plus the last assistant content, with no extra user turn.
+4. **Low (UX) — the timeout message is wrong.**
+   - **Where:** `dashboard/crowd-view.ts:139-143`. When polling ends with the job still `running`, the thrown message is `job.message`, which is "Jev is searching the web...", instead of "took too long".
+   - A 401 during polling (session expired) also ends in a generic message.
+5. **Low (scope) — captain shortlist has no crowd note.** TASK §3 asks for a crowd note on the captain shortlist, but only the board's picked-up detail shows one (`dashboard/tactics-board.ts`).
+6. **Info — `JOBS` is never pruned.** This is pre-existing. Jev's share is bounded by the daily cap, and answers are capped at 6000 characters.
+   - The cap slot is reserved before the call and not refunded on failure, which is conservative and fine.
+
+### Verified OK
+
+- **Secrets:**
+  - The key is only read from the environment.
+  - It is not in `/api/dashboard` (`jev.enabled` is a bool) or in job results.
+  - It is not in the image: `.dockerignore` is an allowlist and only `requirements.txt` was added.
+  - A probe where `ask` raised an exception containing a fake key got the generic "Jev ran into a problem" message, with no leak.
+- **API (SDK 1.8.0 introspected; no real calls):**
+  - `beta.messages.create` accepts `fallbacks`, `output_config` and `betas`.
+  - `claude-opus-5`, `web_search_20260209`, and `fallbacks="default"` with `server-side-fallback-2026-07-01` are the correct current pairing.
+  - Adaptive thinking is the Opus 5 default when omitted, and `max_tokens` 16000 fits a non-streaming call.
+  - `stop_reason == "refusal"` is checked before content is read.
+  - `APIConnectionError` and `APITimeoutError` are subclasses of `APIError`, so they are mapped.
+- **Output safety:**
+  - Every interpolation in `renderJevAnswer`/`formatAnswer`/`renderCrowd` goes through `esc`.
+  - `href` is escaped, and it must match `^https?://` on the client and have an http(s) scheme plus netloc on the server.
+  - Rejected: `javascript:`, mixed-case `JaVaScRiPt:`, `data:`, `vbscript:`, protocol-relative `//`, `http:evil` and `https:///`.
+  - Leading-space URLs pass the server but are dropped by the client regex. Quotes/markup in a URL are escaped.
+  - Error text goes through `esc`, and there is no unescaped `innerHTML` path.
+- **Prompt:** the system prompt is reasonable (web content is untrusted data, FPL-only, plain text, fact versus opinion, cite, no invented predictions). No client free-text reaches the context: the question goes into the user turn, and `transfers` is parsed by `plan.parse_transfers` and only summarised if the plan validates.
+- **Cap:** the day and counter are reserved under `JEV_LOCK` and reset on the UTC date change. It returns 429 after the limit (probe with `JEV_DAILY_LIMIT=2`: 202, 202, 429, 429). The body is limited to 1..4096 bytes and the question to 3-500 characters.
+- **Crowd maths:**
+  - Only `comparable` rivals are counted: `shared` feeds the squad count and `rival_only` feeds `missing`, excluding your picks (`fpl_brief/analyze.py:26`).
+  - `squad` int keys serialise as strings, and `app.ts` indexes with `String(id)`.
+- **Dependency:**
+  - `anthropic>=1.8,<2` is in `requirements.txt`, the Dockerfile and both workflows.
+  - With `sys.modules['anthropic']=None`, `import dashboard` still succeeds. `ask` raises `ModuleNotFoundError`, which the job's generic handler catches.
+
+### Checks
+
+- `python -m unittest discover -s tests`: 171 OK.
+- `node --test tests/*.mjs`: 10 pass, 0 fail.
+- `npm run typecheck --prefix dashboard`: OK.
+- `npm run build --prefix dashboard`: OK.
+- `git diff --check`: clean.
+- Throwaway probes ran on 127.0.0.1/127.0.0.2 with a fake key and mocked `ask`. There were no real Anthropic, FPL or Render calls, and no POSTs to :8765 or :8766.
+
+### Release note
+
+- Do not push yet.
+- **Follow-up (bounded):**
+  - fix Finding 1 in `dashboard.py`, with a test in `tests/test_dashboard.py`;
+  - fix Findings 2 and 3 in `fpl_brief/jev_ask.py`, with tests in `tests/test_crowd_jev.py`;
+  - optionally fix Findings 4 and 5 in `dashboard/crowd-view.ts` and `dashboard/tactics-board.ts`.
+- Re-review can be a focused delta check. After release, the Overseer sets `ANTHROPIC_API_KEY` in Render and verifies one real Jev answer.
+
+## Crowd data + in-app Jev — re-review
+
+**Date:** 2026-09-26
+**Reviewer:** independent Supervisor/Reviewer subagent (Claude Opus 5.5), HIGH-RISK tier; delta re-review of the "Bounded follow-up — 2026-09-26 review findings".
+**Verdict:** PASS — APPROVED
+
+### Findings resolved
+
+1. **Medium (gate) — fixed.** `start_jev` (`dashboard.py` ~l.588-596) now refuses with 403 unless a password is configured or the page is this machine's own same-origin page, and it requires `application/json` (415 otherwise). Refusals don't touch the cap. Probes on throwaway servers with a mocked `ask` and a fake key:
+
+   | Setup | Request | Result |
+   |---|---|---|
+   | **127.0.0.2, no password** | cross-origin `text/plain` | 403 |
+   | | cross-origin JSON | 403 |
+   | | no Origin/Referer | 403 |
+   | | same-origin JSON | 403 |
+   | | daily cap | untouched |
+   | **127.0.0.1** | cross-origin | 403 |
+   | | missing Origin/Referer | 403 |
+   | | same-origin JSON | 202 |
+   | | same-origin `text/plain` | 415 |
+   | **127.0.0.2 + throwaway password** | any request without a session | 401 |
+   | | signed-in same-origin JSON | 202 |
+   | | signed-in cross-origin | 403 |
+   | | signed-in `text/plain` | 415 |
+
+2. **Low (time/cost) — fixed.**
+   - On anthropic 1.8.0 the constructed client reports `max_retries == 1` and `timeout == 60.0`.
+   - `TOTAL_BUDGET_SECONDS = 150` stops further continuations. A fake clock (80 s per paused call) stopped after 2 calls with "Jev took too long searching".
+   - Residual: the budget is checked before each call, so the worst case is about 150 s plus one call with its retry, roughly 270 s. The UI stops polling at about 180 s. Acceptable, because the daily cap bounds spend.
+3. **Low (unfinished `pause_turn`) — fixed.** A final `pause_turn`, or an empty `data` after the budget is spent, raises `JevError` instead of returning partial text (`jev_ask.py:155-156`).
+4. **Low (UI polling) — fixed.** `crowd-view.ts:139-146`: a 401 during polling goes to sign-in. A job still running after the polls shows "taking longer than usual", and other failures show the escaped job message.
+5. **Low (captain shortlist) — fixed.** `tactics-board.ts:150` renders `crowdNote(o.id)` through `esc` in `<span class="crowd-line">`, and `app.ts:388` passes the squad note keyed by `String(id)`.
+
+### Observations (non-blocking)
+
+- A 60 s per-call timeout may be tight for Opus 5 with up to 5 web searches, and a timed-out call is retried once, which is billed twice. After the first real Render answers, check the latency. If timeouts appear, prefer streaming or a longer per-call timeout within the 150 s budget.
+
+### Checks
+
+- `python -m unittest discover -s tests`: 174 OK.
+- `node --test tests/*.mjs`: 10 pass, 0 fail.
+- `npm run typecheck --prefix dashboard`: exit 0.
+- `npm run build --prefix dashboard`: OK.
+- `git diff --check`: clean.
+- Probes used only throwaway 127.0.0.1/127.0.0.2 servers. There were no real Anthropic, FPL or Render calls, and no :8765 or :8766.
+
+### Release note
+
+- Push is allowed.
+- The Overseer sets `ANTHROPIC_API_KEY` in Render; Claude never handles it.
+- After deploy, verify:
+  - the site still returns 303 to login, with `/api/dashboard` at 401 and `/healthz` at 200;
+  - signed in, the Crowd view loads and `jev.enabled` is true;
+  - one real Jev answer shows escaped text, http(s) sources and the "unverified" label, within about 60 s.

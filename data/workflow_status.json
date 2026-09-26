@@ -2,7 +2,7 @@
   "schema_version": 1,
   "refresh": {
     "state": "complete",
-    "snapshot_generated_at_utc": "2026-09-26T04:03:12.207877+00:00",
+    "snapshot_generated_at_utc": "2026-09-26T06:06:56.803628+00:00",
     "decision_status": "ready"
   },
   "research": {
@@ -19,7 +19,7 @@
     "last_collection_at_utc": "2026-09-23T19:44:02.828264+00:00",
     "latest_success_at_utc": "2026-09-23T19:44:03.779218+00:00",
     "latest_evidence_at_utc": "2026-09-23T19:44:03.779218+00:00",
-    "research_age_hours": 56.3,
+    "research_age_hours": 58.4,
     "usable_items": 33,
     "fresh_usable_items": 0,
     "omitted_excerpts": 169,
@@ -89,5 +89,5 @@
       "All successful research evidence is older than 24 hours."
     ]
   },
-  "updated_at_utc": "2026-09-26T04:03:12.245887+00:00"
+  "updated_at_utc": "2026-09-26T06:06:56.842555+00:00"
 }

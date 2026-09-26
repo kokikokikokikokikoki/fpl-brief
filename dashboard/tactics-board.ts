@@ -144,10 +144,10 @@ export function fixtureStrip(fixtures: LineupPlayer["next_fixtures"]): string {
   return `<ol class="fixture-strip" aria-label="Next fixtures">${fixtures.map((f) => `<li class="fdr-${f.difficulty ?? 0}"><span>GW${esc(f.gameweek)}</span> ${esc(f.opponent)} (${esc(f.venue)})<span class="visually-hidden">, FPL difficulty ${esc(f.difficulty ?? "unknown")}</span></li>`).join("")}</ol>`;
 }
 
-function captainShortlist(data: Ready): string {
+function captainShortlist(data: Ready, crowdNote: (id: number) => string): string {
   const options = data.captain_options ?? [];
   if (!options.length) return "";
-  return `<section><h3>Captain shortlist</h3><ol class="captain-list">${options.map((o, index) => `<li><strong>${esc(o.name)}</strong> <span class="cap-est">${esc(o.estimate)} est.</span>${o.fixtures > 1 ? ' <span class="cap-dgw">double</span>' : ""}${index === 0 ? ' <span class="hand red">← armband</span>' : ""}${fixtureStrip(o.next_fixtures)}</li>`).join("")}</ol><p class="fine">Ranked by FPL's estimate among fully available starters. Weigh the fixture and today's team news.</p></section>`;
+  return `<section><h3>Captain shortlist</h3><ol class="captain-list">${options.map((o, index) => `<li><strong>${esc(o.name)}</strong> <span class="cap-est">${esc(o.estimate)} est.</span>${o.fixtures > 1 ? ' <span class="cap-dgw">double</span>' : ""}${index === 0 ? ' <span class="hand red">← armband</span>' : ""}${fixtureStrip(o.next_fixtures)}${crowdNote(o.id) ? `<span class="crowd-line">${esc(crowdNote(o.id))}</span>` : ""}</li>`).join("")}</ol><p class="fine">Ranked by FPL's estimate among fully available starters. Weigh the fixture and today's team news.</p></section>`;
 }
 
 function stats(data: Ready, account: PrivateTeamData | undefined): string {
@@ -157,7 +157,7 @@ function stats(data: Ready, account: PrivateTeamData | undefined): string {
   return `<dl class="board-stats"><div class="deadline"><dt>to GW${esc(data.gameweek)} deadline</dt><dd class="countdown" data-deadline="${esc(data.deadline_utc)}">${esc(countdown(data.deadline_utc))}</dd></div><div><dt>free transfers</dt><dd>${esc(free)}</dd>${note}</div><div><dt>in the bank</dt><dd>${esc(ready ? money(account.bank) : "—")}</dd></div><div><dt>XI FPL estimate</dt><dd class="board-total-value">${esc(data.xi_estimate_total)}</dd></div></dl>`;
 }
 
-export function renderTacticsBoard(data: LineupData | undefined, account?: PrivateTeamData): string {
+export function renderTacticsBoard(data: LineupData | undefined, account?: PrivateTeamData, crowdNote: (id: number) => string = () => ""): string {
   if (!data) return "";
   if (data.state !== "ready") {
     return `<section class="tactics" aria-label="This week's board"><div class="board-head"><p>This week's board${data.gameweek ? ` · GW${esc(data.gameweek)}` : ""}</p></div><div class="board-frame"><div class="enamel board-notice"><p class="hand-note">Board wiped.</p><p>${esc(data.reason)}</p></div></div></section>`;
@@ -187,17 +187,17 @@ export function renderTacticsBoard(data: LineupData | undefined, account?: Priva
         <p class="notes-src">Suggestion compared with ${esc(c.source)}.</p>
         <section><h3>Changes</h3>${c.none ? '<p class="hand green">No changes needed.</p>' : `<ul class="hand-list">${change}</ul>`}${c.bench_order_changed ? "<p>Bench order changes too.</p>" : ""}</section>
         <section><h3>Your board</h3><div class="board-summary" aria-live="polite"></div></section>
-        ${captainShortlist(data)}
+        ${captainShortlist(data, crowdNote)}
         <section><h3>Bench Boost</h3><p>${esc(data.bench_boost.hint)}</p></section>
         <section class="picked" aria-live="polite"><h3>Picked up</h3><div class="picked-body"><p>Pick up a shirt to see why it's there. Drag it, or select two shirts, to swap them.</p></div></section>
-        <p class="jev">Want today's team news weighed in? Ask <strong>Jev</strong> (Claude) in Claude Code: “who should I bench this week?”</p>
+        <div class="jev"><p>Want today's team news and what the FPL community thinks weighed in?</p><button type="button" class="button-secondary" data-go="crowd" data-jev-ask="Who should I bench and captain this week, given the latest team news?">Ask Jev about this lineup</button></div>
         <p class="fine">Only saved in this browser. Make real changes in the FPL app. Estimates are FPL's own, not a forecast by this app.</p>
       </aside>
     </div>
   </section>`;
 }
 
-export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined, context: TeamDecisionPlayer[] = [], storage: StorageLike | null = safeStorage()): void {
+export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined, context: TeamDecisionPlayer[] = [], storage: StorageLike | null = safeStorage(), crowdNote: (id: number) => string = () => ""): void {
   mounted?.abort();
   mounted = null;
   const section = root.querySelector<HTMLElement>(".tactics");
@@ -300,8 +300,9 @@ export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined
     const p = players.get(id)!;
     const row = notes.get(id);
     const status = p.blockers.length ? p.blockers.join(", ") : p.flags.length ? p.flags.join(", ") : "Available";
+    const crowdLine = crowdNote(id);
     const research = row?.research.filter((item) => !item.stale).slice(0, 2).map((item) => `<li><span class="src">${esc(item.publisher || "Source")} · captured, unverified</span> ${esc(item.text)}</li>`).join("") ?? "";
-    section.querySelector<HTMLElement>(".picked-body")!.innerHTML = `<p class="picked-name">${esc(p.name)} <span>${esc(p.role)} · ${esc(p.team)}</span></p><p>${esc(p.reason)}</p>${fixtureStrip(p.next_fixtures)}<dl><dt>FPL estimate</dt><dd>${esc(p.estimate)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${row?.news ? `<dt>FPL note</dt><dd>${esc(row.news)}</dd>` : ""}</dl>${research ? `<ul class="picked-news">${research}</ul>` : ""}`;
+    section.querySelector<HTMLElement>(".picked-body")!.innerHTML = `<p class="picked-name">${esc(p.name)} <span>${esc(p.role)} · ${esc(p.team)}</span></p><p>${esc(p.reason)}</p>${fixtureStrip(p.next_fixtures)}${crowdLine ? `<p class="crowd-line">Crowd: ${esc(crowdLine)}</p>` : ""}<dl><dt>FPL estimate</dt><dd>${esc(p.estimate)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${row?.news ? `<dt>FPL note</dt><dd>${esc(row.news)}</dd>` : ""}</dl>${research ? `<ul class="picked-news">${research}</ul>` : ""}`;
   };
 
   const render = () => {

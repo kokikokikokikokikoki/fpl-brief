@@ -211,6 +211,7 @@ def main():
             "chance_of_playing_next_round", "news", "news_added", "ep_next",
             "minutes", "goals_scored", "assists", "expected_goals",
             "expected_assists", "expected_goal_involvements",
+            "transfers_in_event", "transfers_out_event", "cost_change_event", "cost_change_start",
         )} for player in boot.get("elements", [])],
         "teams": [{key: team.get(key) for key in ("id", "name", "short_name", "strength")} for team in boot.get("teams", [])],
     })

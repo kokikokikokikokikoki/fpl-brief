@@ -881,3 +881,72 @@ Verified: the GitHub Actions run "Tests" on `797edcd` completed with **success**
 - `cookie_token` splits the Cookie header by hand, so malformed unrelated cookies no longer hide the session.
 - Test: `test_review_edge_cases_do_not_block_sign_in`.
 - The full suite passes.
+
+## "What the internet thinks": crowd data + in-app Jev — Programmer handoff
+
+**Date:** 2026-09-26 · **Status:** IN_REVIEW · **Programmer:** Claude Opus 5.5
+
+### Changed paths
+
+- **`fetch_fpl.py`** adds `transfers_in_event`, `transfers_out_event`, `cost_change_event` and `cost_change_start` to the catalog. **`.github/workflows/fpl-digest.yml`** now also commits `data/catalog.json`.
+- **`fpl_brief/crowd.py` (new).** `build(snapshot, catalog)` returns:
+  - top 10 bought and sold, and price risers and fallers;
+  - event summaries (most captained/selected/transferred in, top scorer, transfers made, chip plays) labelled "this gameweek so far" or "last gameweek";
+  - a per-player squad map with ownership, net transfers, price moves and the number of *comparable* rivals who own each player;
+  - `league.missing` (players rivals own that you don't).
+
+  It returns `unavailable` without transfer fields. `note()` produces one crowd line.
+- **`fpl_brief/jev_ask.py` (new).** Official `anthropic` SDK (lazy import).
+  - **Request:** `client.beta.messages.create` with `model="claude-opus-5"`, `max_tokens` 16000, a stable system prompt (web content is untrusted, FPL-only, plain text, fact vs. opinion, cite, no invented predictions), tools `[web_search_20260209, max_uses 5]`, `output_config.effort` `medium`, `betas=["server-side-fallback-2026-07-01"]` and `fallbacks="default"`.
+  - **Continuation:** `pause_turn` is resumed by re-sending user + assistant content, with no extra user turn (at most 3 continuations; beyond that the answer comes back empty with a friendly error).
+  - **Refusals and errors:** a refusal returns a friendly error. SDK `APIError` statuses 401/403, 429 and others map to safe messages without error details.
+  - **Output:** `extract()` takes cited http(s) sources first, then search results as a fallback (at most 8); non-http(s) URLs are dropped.
+  - **Validation and context:** `validate_question` normalises whitespace and enforces 3–500 characters. `build_context` uses only server-side data: lineup lines, bench with blockers and flags, captain shortlist, the optional plan summary and the crowd's top in/out.
+- **`dashboard.py`.**
+  - `/api/dashboard` adds `crowd` and `jev: {enabled, daily_limit}`.
+  - **`POST /api/jev` (`start_jev`):** 503 without a key. Body up to 4 KB of JSON; question validated; `transfers` parsed with `plan.parse_transfers`. A per-server-day cap of `JEV_DAILY_LIMIT` (default 20) returns 429, and the slot is reserved under a lock. The context is built server-side (lineup, crowd, and a plan summary only when the plan validates against the account). A background job is polled via `/api/jobs/<id>`; the key is never logged or returned.
+  - `/api/jev` joins the local same-origin action list. The hosted session gate already covers it (401 without a session, 403 cross-origin).
+- **`fpl_brief/candidates.py`.** Candidate rows add `ownership` and `net_transfers`.
+- **Dependencies.**
+  - `requirements.txt` contains `anthropic>=1.8,<2`, the first runtime dependency, used only by Jev.
+  - `Dockerfile` runtime copies it and runs `pip install -r requirements.txt`.
+  - `.dockerignore` allowlists it.
+  - Both workflows run `pip install -r requirements.txt`.
+- **Frontend.**
+  - **`dashboard/crowd-view.ts` / `.css` (new):**
+    - the Crowd view: facts strip, bought/sold/mini-league/risers tables, and method note;
+    - the Ask Jev panel: quick prompts, a question box of up to 500 characters, an optional "include my planned transfers", and a setup hint when disabled;
+    - `mountJev` POSTs, polls, and on 401 goes to sign-in;
+    - `renderJevAnswer` escapes everything, draws paragraphs and bullet lists, and links only http(s) sources with `noopener noreferrer`, under the "unverified" label.
+  - **`index.html`:** "Crowd & Jev" nav item and `#crowd` view.
+  - **`app.ts`:** `ViewId` "crowd", the view title, `renderCrowdView`, a crowd note passed to the board, and a `data-jev-ask` prefill.
+  - **`tactics-board.ts`:** "Ask Jev about this lineup" button, plus a crowd line in the picked-up detail.
+  - **`desk-tools.ts`:** "Own" and "Net transfers" columns in Candidate lens.
+- **Tests.**
+  - `tests/test_crowd_jev.py` (9):
+    - crowd: unavailable, summary and league, note;
+    - Jev: request shape (model, tool, fallbacks, system) and extraction, `pause_turn` resume and cap, refusal and empty answers, API error mapping without leaks, validation and no key, context built from server data.
+  - `tests/test_dashboard.py`: `JevEndpointTests` (no key 503, 401 behind the password, validation 400, cross-origin 403, job completes with a mocked `ask`, key not echoed, daily cap 429) and `CrowdViewUiTests` (escaping, unsafe links dropped, bullet rendering, labels).
+  - The SDK is mocked throughout, and no test makes a network call.
+
+### Verification
+
+- **Tests:** the Python suite, Node tests, typecheck, build, py_compile and `git diff --check` all pass.
+- **Live local check (public refresh):**
+  - the crowd data is `ready`;
+  - most bought: Groß 744,688, then Schade and Kostoulas;
+  - most sold: João Pedro 367,983;
+  - the mini-league block works (9 rivals compared);
+  - the board crowd note for Groß reads "28.4% own · +734,622 net transfers this GW · price +£0.1m this GW · 6 league rivals own";
+  - Jev shows the setup hint (no key locally).
+- **Not verified:** a real Jev call. It needs the Overseer's API key, which is by design not handled by Claude.
+
+### Bounded follow-up — 2026-09-26 review findings
+
+1. **[Medium] `start_jev` gate.** It returns 403 unless a `DASHBOARD_PASSWORD` is configured (so the session and same-origin gate already applied), or the server is on loopback and `same_origin_local()` passes. It also requires `Content-Type: application/json` (415 otherwise). Refused requests don't use the daily cap. Test: `test_refused_off_machine_without_a_password_and_needs_json`, covering a non-loopback bind with no password (403), `text/plain` (415) and cap untouched.
+2. **Time and cost bounds.** The SDK client uses `max_retries=1` and `timeout=60s` (`CALL_TIMEOUT_SECONDS`). A total budget of `TOTAL_BUDGET_SECONDS=150` stops further `pause_turn` continuations. Test: `test_client_limits_retries_and_timeout`.
+3. **Unfinished search.** If the last response is still `pause_turn`, or the budget is exhausted, the result is "Jev took too long…" instead of partial text. Test: `test_unfinished_search_and_time_budget_raise_instead_of_partial_text`, which confirms no further calls once the budget is spent.
+4. **UI polling.** A 401 while polling goes to sign-in. Timing out while still running shows "taking longer than usual".
+5. **Captain shortlist.** Each option now shows its crowd line: `renderTacticsBoard` has a new `crowdNote` parameter, passed from `app.ts`.
+
+Results: the full Python suite, Node tests, build and `git diff --check` all pass.

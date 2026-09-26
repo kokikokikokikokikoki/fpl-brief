@@ -22,6 +22,8 @@ from fpl_brief.config import load as load_config
 from fpl_brief.decision import assess, snapshot_freshness
 from fpl_brief.candidates import lens
 from fpl_brief import lineup as lineup_helper
+from fpl_brief import crowd as crowd_data
+from fpl_brief import jev_ask
 from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
 from fpl_brief import web_session
@@ -47,6 +49,16 @@ AUTH_FAILURES = {}
 AUTH_GLOBAL_MAX_FAILURES = 100
 AUTH_GLOBAL_FAILURES = []
 HEALTH_LOGGED = 0
+# In-app Jev (Claude + web search): a per-server daily question cap keeps pay-per-use cost bounded.
+JEV_USAGE = {"day": None, "count": 0}
+JEV_LOCK = threading.Lock()
+
+
+def jev_daily_limit():
+    try:
+        return max(0, int(os.environ.get("JEV_DAILY_LIMIT", "20")))
+    except ValueError:
+        return 20
 AUTH_LOCK = threading.Lock()
 
 
@@ -573,6 +585,58 @@ class Handler(SimpleHTTPRequestHandler):
                 os.remove(handle.name)
         return self.send_json(private_team.load(PRIVATE_TEAM, config, snapshot or {}))
 
+    def start_jev(self):
+        """Queue a Jev question (Claude + web search) as a background job; context is built server-side."""
+        # Paid calls need a signed-in session (hosted: the gate already checked it) or this machine's own page.
+        signed_in_site = bool(auth_settings()[0])
+        local_page = self.server.server_address[0] in LOOPBACK_HOSTS and self.same_origin_local()
+        if not (signed_in_site or local_page):
+            return self.send_json({"error": "Jev only answers signed-in visitors. Set a DASHBOARD_PASSWORD to use it on a server."}, HTTPStatus.FORBIDDEN)
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self.send_json({"error": "Send the question as JSON."}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        if not jev_ask.api_key():
+            return self.send_json({"error": "Jev isn't set up here yet: add an ANTHROPIC_API_KEY in the host settings."}, HTTPStatus.SERVICE_UNAVAILABLE)
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 < length <= 4096:
+                raise ValueError("Keep the question short.")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Send a question.")
+            question = jev_ask.validate_question(payload.get("question"))
+            pairs = transfer_plan.parse_transfers(payload["transfers"]) if payload.get("transfers") else []
+        except (jev_ask.JevError, ValueError, UnicodeDecodeError, RecursionError) as error:
+            return self.send_json({"error": str(error) if isinstance(error, (jev_ask.JevError, ValueError)) else "Send a valid question."}, HTTPStatus.BAD_REQUEST)
+        today = datetime.now(timezone.utc).date().isoformat()
+        with JEV_LOCK:
+            if JEV_USAGE["day"] != today:
+                JEV_USAGE.update(day=today, count=0)
+            if JEV_USAGE["count"] >= jev_daily_limit():
+                return self.send_json({"error": f"Jev has answered today's {jev_daily_limit()} questions. The limit resets at midnight UTC."}, HTTPStatus.TOO_MANY_REQUESTS)
+            JEV_USAGE["count"] += 1
+        config = load_config()
+        snapshot, catalog = self.api_data()
+        snapshot = snapshot or {}
+        freshness = snapshot_freshness(snapshot, config.get("stale_after_hours", 8))
+        private = self.private_data(config, snapshot)
+        plan_summary = None
+        if pairs:
+            planned = transfer_plan.build(snapshot, catalog, private, freshness, pairs)
+            plan_summary = planned.get("summary") if planned.get("state") == "ready" else None
+        context = jev_ask.build_context(lineup_helper.suggest(snapshot, catalog, private, freshness), crowd_data.build(snapshot, catalog), plan_summary)
+        job_id = uuid.uuid4().hex[:10]
+        JOBS[job_id] = {"id": job_id, "status": "running", "message": "Jev is searching the web…"}
+
+        def run():
+            try:
+                JOBS[job_id] = {"id": job_id, "status": "complete", "result": jev_ask.ask(question, context)}
+            except jev_ask.JevError as error:
+                JOBS[job_id] = {"id": job_id, "status": "failed", "message": str(error)}
+            except Exception:
+                JOBS[job_id] = {"id": job_id, "status": "failed", "message": "Jev ran into a problem. Try again shortly."}
+        threading.Thread(target=run, daemon=True).start()
+        return self.send_json(JOBS[job_id], HTTPStatus.ACCEPTED)
+
     def api_data(self):
         return read_json(ROOT / "data" / "latest.json", default=None), read_json(ROOT / "data" / "catalog.json", default={"players": [], "teams": []})
 
@@ -756,6 +820,8 @@ class Handler(SimpleHTTPRequestHandler):
                                    "snapshot_status": decision["snapshot_status"], "decision": decision, "research": research,
                                    "team_decision": team_decision,
                                    "auth": {"enabled": bool(auth_settings()[0])},
+                                   "crowd": crowd_data.build(snapshot, catalog),
+                                   "jev": {"enabled": bool(jev_ask.api_key()), "daily_limit": jev_daily_limit()},
                                    "workflow": read_json(ROOT / "data" / "workflow_status.json", default={"schema_version": 1})})
         if path == "/api/research":
             return self.send_json(research_result(load_config(), snapshot))
@@ -806,7 +872,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.gate(urlparse(self.path).path, "POST"):
             return
         # On this machine, only this dashboard's own pages may trigger actions (blocks cross-site and DNS-rebinding posts).
-        if self.server.server_address[0] in LOOPBACK_HOSTS and self.path in ("/api/research", "/api/refresh", "/api/plans/compare") and not self.same_origin_local():
+        if self.server.server_address[0] in LOOPBACK_HOSTS and self.path in ("/api/research", "/api/refresh", "/api/plans/compare", "/api/jev") and not self.same_origin_local():
             return self.send_json({"error": "Actions only work from this dashboard on this machine."}, HTTPStatus.FORBIDDEN)
         if self.path == "/api/research":
             job_id = uuid.uuid4().hex[:10]
@@ -830,6 +896,8 @@ class Handler(SimpleHTTPRequestHandler):
                     JOBS[job_id] = {"id": job_id, "status": "failed", "message": str(error)}
             threading.Thread(target=refresh, daemon=True).start()
             return self.send_json(JOBS[job_id], HTTPStatus.ACCEPTED)
+        if self.path == "/api/jev":
+            return self.start_jev()
         if self.path == "/api/private-team":
             return self.import_private_team()
         if self.path == "/api/plans/compare":

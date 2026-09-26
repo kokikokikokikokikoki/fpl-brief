@@ -1,0 +1,23 @@
+/* Crowd & Jev view — Tactics Board world (see DESIGN.md). */
+.jev-panel textarea { width: 100%; min-height: 64px; margin-top: 10px; padding: 10px 12px; border: 1.5px solid var(--rule); border-radius: 10px; background: #fff; color: var(--ink); font: 16px/1.4 var(--body); resize: vertical; }
+.jev-prompts { display: flex; flex-wrap: wrap; gap: 8px; }
+.jev-prompts .button-secondary { min-height: 38px; padding: 8px 12px; font: 600 14px/1.2 var(--body); letter-spacing: 0; text-transform: none; }
+.jev-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.jev-plan { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+.jev-plan input { width: 18px; height: 18px; accent-color: var(--ink); }
+.jev-panel .fine { margin: 8px 0 0; color: var(--ink-soft); font-size: 13px; }
+.jev-answer:empty { display: none; }
+.jev-answer { margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: var(--enamel-shade); }
+.jev-wait { margin: 0; color: var(--marker-blue); font: 700 18px/1.3 var(--hand); }
+.jev-result p, .jev-result li { font-size: 15.5px; line-height: 1.55; }
+.jev-result ul { margin: 6px 0 12px; padding-left: 20px; }
+.jev-result h3 { margin: 12px 0 6px; font-size: 16px; }
+.jev-sources { margin: 0; padding-left: 20px; font-size: 14px; overflow-wrap: anywhere; }
+.jev-sources a { color: var(--marker-blue); }
+.crowd-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.crowd-facts > div { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: var(--enamel); box-shadow: var(--rest); }
+.crowd-facts strong { font: 700 20px/1.2 var(--display); }
+.crowd-table td { font-variant-numeric: tabular-nums; }
+.crowd-line { margin: 6px 0 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+.jev .button-secondary { margin-top: 8px; }
+.captain-list .crowd-line { display: block; margin-top: 4px; font-size: 13px; }

@@ -89,6 +89,8 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         candidates.append({
             "id": player["id"], "name": player.get("web_name"), "team_id": player.get("team"), "price": player.get("now_cost"),
             "minutes": player.get("minutes") or 0, "xgi_per_90": xgi_per_90(player),
+            "ownership": player.get("selected_by_percent"),
+            "net_transfers": (player["transfers_in_event"] - player["transfers_out_event"]) if isinstance(player.get("transfers_in_event"), int) and isinstance(player.get("transfers_out_event"), int) else None,
             "fixture_difficulty_average": difficulties.get(player.get("team")), "availability": "available",
         })
     candidates.sort(key=lambda player: (-(player["xgi_per_90"] or 0), -player["minutes"], player["fixture_difficulty_average"] if player["fixture_difficulty_average"] is not None else 99, player["name"] or ""))

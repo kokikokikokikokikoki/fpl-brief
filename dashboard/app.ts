@@ -4,6 +4,8 @@ import { mountSquadFormation, renderSquadFormation } from "./squad-formation";
 import { renderLineupHelper, type LineupData } from "./lineup-helper";
 import { mountTacticsBoard, renderTacticsBoard } from "./tactics-board";
 import { jerseySvg } from "./kits";
+import { crowdNote, mountJev, renderCrowd, type CrowdData, type JevInfo } from "./crowd-view";
+import "./crowd-view.css";
 import { addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
 import "./tactics-board.css";
 import "./lineup-helper.css";
@@ -18,7 +20,7 @@ import "./board.css";
 import "./squad-formation.css";
 import "./team-decision-desk.css";
 
-export type ViewId = "overview" | "squad" | "wildcard" | "rivals" | "players" | "research" | "candidates";
+export type ViewId = "overview" | "squad" | "wildcard" | "rivals" | "players" | "research" | "candidates" | "crowd";
 export type DisplayValue = string | number | null | undefined;
 
 export interface Player {
@@ -145,6 +147,8 @@ export interface DashboardData {
   lineup?: LineupData;
   config?: { team_id?: number };
   auth?: { enabled: boolean };
+  crowd?: CrowdData;
+  jev?: JevInfo;
 }
 
 export interface PrivateTeamData {
@@ -381,7 +385,7 @@ function renderSquad(): void {
     }
   }
   const names = new Map(data.catalog.players.map((player) => [player.id, player.web_name ?? `Player ${player.id}`]));
-  target.innerHTML = renderPlanStrip(plan, result, names) + renderTacticsBoard(lineup, data.private_team)
+  target.innerHTML = renderPlanStrip(plan, result, names) + renderTacticsBoard(lineup, data.private_team, (id) => crowdNote(data.crowd?.state === "ready" ? data.crowd.squad[String(id)] : undefined))
     + `<details class="panel lineup-list"><summary>Show this week's lineup as a list, with every reason</summary>${renderLineupHelper(lineup, data.team_decision?.players ?? [])}</details>`
     + `<details class="panel saved-squad"><summary>Your saved squad from the public snapshot (last deadline)</summary>` + renderSquadFormation({
     picks,
@@ -393,7 +397,8 @@ function renderSquad(): void {
     bank: snapshot.squad_snapshot.bank,
   }) + "</details>";
   mountSquadFormation(target);
-  mountTacticsBoard(target, lineup, data.team_decision?.players ?? []);
+  const squadCrowd = data.crowd?.state === "ready" ? data.crowd.squad : {};
+  mountTacticsBoard(target, lineup, data.team_decision?.players ?? [], safeLocalStorage(), (id) => crowdNote(squadCrowd[String(id)]));
   target.querySelectorAll<HTMLButtonElement>("[data-remove-out]").forEach((button) => {
     button.onclick = () => setPlan(currentPlan().filter((move) => move.out !== Number(button.dataset.removeOut)));
   });
@@ -425,6 +430,19 @@ function renderRivals(): void {
   required<HTMLElement>("#rivals").innerHTML = `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
 }
 
+let pendingJevQuestion = "";
+
+function renderCrowdView(): void {
+  const data = state.data;
+  if (!data) return;
+  const target = required<HTMLElement>("#crowd");
+  const hasPlan = currentPlan().length > 0;
+  target.innerHTML = renderCrowd(data.crowd, data.jev, hasPlan);
+  mountJev(target, () => planQuery(currentPlan()));
+  const box = target.querySelector<HTMLTextAreaElement>("#jev-question");
+  if (box && pendingJevQuestion) { box.value = pendingJevQuestion; pendingJevQuestion = ""; }
+}
+
 function renderPlayerPool(): void {
   const data = state.data;
   if (!data) return;
@@ -444,13 +462,14 @@ function render(): void {
   renderWildcard();
   renderRivals();
   renderPlayerPool();
+  renderCrowdView();
   all<HTMLElement>(".view").forEach((view) => view.classList.toggle("active", view.id === state.active));
   all<HTMLButtonElement>(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.view === state.active));
   const gameweek = state.data?.lineup?.gameweek ?? state.data?.snapshot.events.next?.id;
-  const titles: Record<string, string> = { overview: "This week", squad: gameweek ? `Gameweek ${gameweek} lineup` : "Lineup", wildcard: "Wildcard lab", rivals: "Rivals", players: "Player pool", research: "Research desk", candidates: "Candidate lens" };
+  const titles: Record<string, string> = { overview: "This week", squad: gameweek ? `Gameweek ${gameweek} lineup` : "Lineup", wildcard: "Wildcard lab", rivals: "Rivals", players: "Player pool", research: "Research desk", candidates: "Candidate lens", crowd: "What the crowd thinks" };
   required<HTMLElement>("main h1").textContent = titles[state.active] ?? "FPL Brief";
   all<HTMLButtonElement>("[data-go]").forEach((button) => {
-    button.onclick = () => activate(button.dataset.go as ViewId);
+    button.onclick = () => { pendingJevQuestion = button.dataset.jevAsk ?? ""; activate(button.dataset.go as ViewId); };
   });
   all<HTMLButtonElement>(".save-plan").forEach((button) => { button.onclick = saveDraft; });
   const addPlan = document.querySelector<HTMLButtonElement>("#add-plan");

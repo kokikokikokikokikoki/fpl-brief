@@ -1,6 +1,7 @@
 # Allowlist: the build context contains only what the Dockerfile copies.
 *
 !dashboard.py
+!requirements.txt
 !fetch_fpl.py
 !config.json
 !digest.md

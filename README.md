@@ -128,9 +128,20 @@ Claude can also capture it for you from its browser pane.
    - the best XI and captain with those players;
    - the next-gameweek FPL estimate change after any −4 hits.
    Plans are saved in this browser only.
-4. For team news and judgement (press conferences, rotation), ask Jev (Claude)
-   in Claude Code.
-5. Make the real changes in the FPL app; this dashboard never changes your team.
+4. **Crowd & Jev** shows what FPL managers are doing: the most bought and sold
+   players this gameweek, price risers, ownership, captaincy and chip counts, and
+   players your mini-league rivals own that you don't. It is official FPL data,
+   and the board shows a crowd line for each player.
+5. **Ask Jev** (same view, or "Ask Jev about this lineup" on the board) searches
+   the web with Claude and sums up what people are saying, with sources. It is
+   internet opinion, not verified news.
+   - To enable it, set `ANTHROPIC_API_KEY` in Render → Environment (or in your
+     shell when running locally). Each question costs a few cents on your
+     Anthropic account.
+   - Questions are capped at `JEV_DAILY_LIMIT` a day (default 20).
+   - Jev answers only signed-in visitors. The server builds the context from its
+     own data.
+6. Make the real changes in the FPL app; this dashboard never changes your team.
 
 ### Container image (Railway-compatible)
 

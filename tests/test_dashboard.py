@@ -1320,3 +1320,103 @@ class PasswordGateTests(unittest.TestCase):
             for index in range(12):
                 self.login(password="x", forwarded=f"192.0.2.{index}")
             self.assertLessEqual(len(dashboard.AUTH_FAILURES), 5)
+
+
+class JevEndpointTests(unittest.TestCase):
+    def setUp(self):
+        dashboard.JEV_USAGE.update(day=None, count=0)
+        self.server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.origin = f"http://127.0.0.1:{self.server.server_port}"
+
+    def post(self, body, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        payload = json.dumps(body).encode()
+        try:
+            connection.request("POST", "/api/jev", body=payload, headers={"Origin": self.origin, "Content-Type": "application/json", **(headers or {})})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode())
+        finally:
+            connection.close()
+
+    def test_not_configured_without_a_key(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("DASHBOARD_PASSWORD", None)
+            status, body = self.post({"question": "Who to captain?"})
+        self.assertEqual(status, 503)
+        self.assertIn("ANTHROPIC_API_KEY", body["error"])
+
+    def test_requires_sign_in_when_password_set(self):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key", "DASHBOARD_PASSWORD": "pw-for-tests"}):
+            status, _ = self.post({"question": "Who to captain?"})
+        self.assertEqual(status, 401)
+
+    def test_refused_off_machine_without_a_password_and_needs_json(self):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), patch.object(dashboard.jev_ask, "ask", lambda *a, **k: {"answer": "x", "sources": [], "searches": 0}):
+            os.environ.pop("DASHBOARD_PASSWORD", None)
+            with patch.object(dashboard, "LOOPBACK_HOSTS", set()):
+                status, body = self.post({"question": "Who to captain?"})
+                self.assertEqual(status, 403, "a non-loopback server with no password must not spend on Jev")
+                self.assertIn("signed-in", body["error"])
+            self.assertEqual(self.post({"question": "Who to captain?"}, {"Content-Type": "text/plain"})[0], 415)
+            self.assertEqual(dashboard.JEV_USAGE["count"], 0, "refused requests don't use the daily cap")
+
+    def test_validation_cap_and_background_job(self):
+        seen = {}
+        def fake_ask(question, context, client=None):
+            seen.update(question=question, context=context)
+            return {"answer": "Captain X.", "sources": [], "model": "claude-opus-5", "searches": 1}
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key", "JEV_DAILY_LIMIT": "2"}), patch.object(dashboard.jev_ask, "ask", fake_ask):
+            os.environ.pop("DASHBOARD_PASSWORD", None)
+            self.assertEqual(self.post({"question": "hi"})[0], 400)
+            self.assertEqual(self.post({"question": "Who to captain?", "transfers": "bad"})[0], 400)
+            self.assertEqual(self.post({"question": "Who to captain?"}, {"Origin": "https://evil.example"})[0], 403)
+            status, job = self.post({"question": "Who to captain?"})
+            self.assertEqual(status, 202)
+            for _ in range(50):
+                with urlopen(f"{self.origin}/api/jobs/{job['id']}") as response:
+                    job = json.loads(response.read().decode())
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(job["status"], "complete")
+            self.assertEqual(job["result"]["answer"], "Captain X.")
+            self.assertEqual(seen["question"], "Who to captain?")
+            self.assertTrue(seen["context"], "server built the context")
+            self.assertNotIn("test-key", json.dumps(job))
+            self.assertEqual(self.post({"question": "Second question?"})[0], 202)
+            status, body = self.post({"question": "Third question?"})
+            self.assertEqual(status, 429)
+            self.assertIn("2 questions", body["error"])
+
+
+class CrowdViewUiTests(unittest.TestCase):
+    def test_crowd_view_and_jev_answer_escape_everything(self):
+        script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const ts = require("./dashboard/node_modules/typescript");
+const out = ts.transpileModule(fs.readFileSync("dashboard/crowd-view.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const ctx = { exports: {}, Number, String, Math, JSON };
+vm.runInNewContext(out, ctx);
+const v = ctx.exports;
+const check = (c, m) => { if (!c) throw new Error(m); };
+const row = { id: 1, name: "<img src=x>", team: "T&1", price: 60, ownership: 30.5, transfers_in: 50000, transfers_out: 1000, net_transfers: 49000, price_change_event: 1, rival_owners: 2 };
+const crowd = { state: "ready", gameweek: 6, transfers_in: [row], transfers_out: [row], risers: [row], fallers: [], events: [{ gameweek: 5, label: "last gameweek", most_captained: "<b>C</b>", most_selected: null, most_transferred_in: null, top_scorer: "S", transfers_made: 10, average_score: 50, chip_plays: [{ chip: "bboost", played: 9 }] }], squad: {}, league: { rivals_compared: 2, missing: [row] }, method: "m" };
+const html = v.renderCrowd(crowd, { enabled: true, daily_limit: 20 }, true);
+check(html.includes("&lt;img src=x&gt;") && !html.includes("<img"), "player names escaped");
+check(html.includes("&lt;b&gt;C&lt;/b&gt;") && html.includes("T&amp;1"), "event names and teams escaped");
+check(html.includes('id="jev-include-plan"') && html.includes("Up to 20 questions"), "jev panel with plan option");
+check(v.renderCrowd(crowd, { enabled: false, daily_limit: 20 }, false).includes("ANTHROPIC_API_KEY"), "setup hint when disabled");
+check(v.crowdNote(row) === "30.5% own · +49,000 net transfers this GW · price +£0.1m this GW · 2 league rivals own", "note: " + v.crowdNote(row));
+const answer = v.renderJevAnswer({ answer: "Verdict <script>x</script>\n\n- point <b>one</b>\n- two", searches: 2, sources: [{ url: "https://ok.example/a?b=1&c=2", title: "<i>T</i>" }, { url: "javascript:alert(1)", title: "bad" }, { url: "data:text/html,x", title: "bad2" }] });
+check(!/<script|<b>|<i>/.test(answer), "answer and titles escaped");
+check(answer.includes("<ul><li>point &lt;b&gt;one&lt;/b&gt;</li><li>two</li></ul>"), "bullets rendered as list");
+check(answer.includes('href="https://ok.example/a?b=1&amp;c=2"') && answer.includes('rel="noopener noreferrer"'), "safe link");
+check(!answer.includes("javascript:") && !answer.includes("data:text"), "unsafe links dropped");
+check(answer.includes("unverified"), "labelled unverified");
+'''
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)

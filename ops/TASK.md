@@ -1,4 +1,62 @@
-# Active task — Sign-in page with session cookie
+# Active task — "What the internet thinks": crowd data + in-app Jev
+
+**Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort (a secret API key, external calls, and untrusted web content)
+**Status:** APPROVED (independent re-review PASS 2026-09-26; push allowed, then verify on Render)
+**Date:** 2026-09-26
+**Milestone:** Overseer decision 2026-09-26 (see ops/DECISIONS.md).
+
+## Required implementation
+
+### A. Crowd data (official FPL, deterministic)
+
+1. `fetch_fpl.py` adds `transfers_in_event`, `transfers_out_event`, `cost_change_event` and `cost_change_start` to the catalog. The digest workflow also commits `data/catalog.json`, so the hosted site stays current.
+2. `fpl_brief/crowd.py`:
+   - the gameweek's crowd summary: most transferred in and out (top 10, with net, ownership and price move), price risers and fallers, and the most captained/selected players and chip plays (labelled with the gameweek they refer to);
+   - a per-player crowd map for the squad: ownership, net transfers, price move, and how many league rivals own each player;
+   - the mini-league's most-owned players you don't have.
+3. `/api/dashboard` returns `crowd`. There is a new **Crowd** view. The board's picked-up detail and captain shortlist show a one-line crowd note. Candidate lens rows show ownership and net transfers.
+
+### B. In-app Jev
+
+4. The official `anthropic` SDK becomes the first runtime dependency: add it to `requirements.txt`, and have the Dockerfile runtime and the CI workflows install it. `fpl_brief/jev_ask.py` then works as follows:
+   - **Model and request:** `claude-opus-5`, adaptive thinking by default, effort `medium`, `max_tokens` 16000.
+   - **Tools:** the `web_search_20260209` tool (`max_uses` 5), plus the server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`).
+   - **Continuation:** `pause_turn` is continued up to 3 times.
+   - **Output:** text and cited sources (http/https only) are extracted, and refusals and errors return a plain message.
+   - **Prompting:** the system prompt treats web content as untrusted data, answers only the FPL question, separates sourced facts from opinion, cites, and never produces HTML.
+5. `POST /api/jev` requires a signed-in session and the same origin (via the existing gate). It returns `503` when `ANTHROPIC_API_KEY` is unset.
+   - **Question:** 3–500 characters.
+   - **Context:** optional `transfers`, validated like `/api/plan`. The server builds the context itself from the current lineup, flags, plan and crowd data; the client never supplies free-form context.
+   - **Daily cap:** `JEV_DAILY_LIMIT` (default 20) per server day. `429` when it is reached.
+   - **Execution:** a background job polled through `/api/jobs/<id>`.
+   - **Secrets:** the API key is never logged or returned.
+6. **UI.** An "Ask Jev" panel in the Crowd view and on the board replaces the "ask in Claude Code" note.
+   - **Controls:** quick prompts plus a free-text question.
+   - **Answer:** shown as escaped text with simple paragraphs and bullets, a sources list (safe links), and the label "Internet opinion via Claude web search — unverified".
+7. **Tests.** The SDK is mocked and nothing touches the network. Coverage:
+   - context building;
+   - `pause_turn` continuation;
+   - refusal;
+   - citation extraction, with unsafe URLs dropped;
+   - no key;
+   - cap and validation;
+   - the endpoint gated behind sign-in;
+   - UI escaping;
+   - crowd maths.
+
+## Allowed paths
+
+`fetch_fpl.py`, `fpl_brief/crowd.py` (new), `fpl_brief/jev_ask.py` (new), `fpl_brief/candidates.py`, `dashboard.py`, `dashboard/**` (excluding `node_modules`/`dist`), `requirements.txt`, `Dockerfile`, `.github/workflows/*.yml`, `render.yaml`, `tests/**`, `README.md`, `ops/IMPLEMENTATION_REPORT.md`.
+
+## Release boundary
+
+- Push after an independent PASS.
+- The Overseer sets `ANTHROPIC_API_KEY` in Render; Claude never handles it.
+- Verify on Render.
+
+---
+
+# Closed task — Sign-in page with session cookie
 
 **Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort (authentication)
 **Status:** APPROVED (independent review 2026-09-26, PASS; see ops/REVIEW.md). Push allowed; verify on Render / = 303 to /login and /healthz = 200, then the Overseer signs in. Optional follow-up: Low findings 1-3 (non-ASCII next crash, >10 login fields, SimpleCookie all-or-nothing).
