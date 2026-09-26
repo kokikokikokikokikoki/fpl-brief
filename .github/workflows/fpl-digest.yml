@@ -27,6 +27,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install and build the dashboard (tests use it)
+        run: |
+          npm ci --prefix dashboard
+          npm run build --prefix dashboard
+
       - name: Run offline checks
         run: python -m unittest discover -s tests -v
 
