@@ -729,3 +729,23 @@ Verification:
 - On a loopback bind, `POST /api/refresh`, `/api/research` and `/api/plans/compare` require `same_origin_local()`. A Railway `0.0.0.0` bind is unaffected. Test: `test_actions_refuse_cross_site_posts_on_loopback`.
 - Verified live: the dashboard's own Refresh still works ("Snapshot refreshed", generated 2026-09-26 04:03 UTC).
 - 145 Python tests pass.
+
+## Release verification — Render (2026-09-26)
+
+Deployed by the Overseer from the `render.yaml` Blueprint (commit `305c18d`), as the free Docker web service `fpl-brief`. It is live at https://fpl-brief.onrender.com, with a 33.8 s build. This build is the Docker image verification that the 2026-09-25 review asked for.
+
+Smoke test of the public URL (read-only apart from one public-data Refresh):
+
+| Check | Result |
+| --- | --- |
+| `/` | 200, `Cache-Control: no-cache` |
+| Hashed JS bundle | 200, `text/javascript` |
+| CSS | 200 |
+| Self-hosted fonts | All 6 faces loaded |
+| `/api/dashboard` | 200; fresh snapshot; lineup ready |
+| `private_team` | `disabled` (not a loopback bind), as designed |
+| `/api/plan` | 422 "needs a fresh capture", so no private data online |
+| Views | All 7 render with the correct H1; board shows 15 magnets |
+| Refresh FPL data | "Snapshot refreshed" (04:30 UTC); the non-root container user can write `data/` and `digest.md` |
+
+The site is public with no password, per the Overseer's decision. Auto-deploy runs on every commit to `main`.
