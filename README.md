@@ -146,6 +146,12 @@ docker build -t fpl-brief:local .
 docker run --rm -e PORT=8080 -p 127.0.0.1:8080:8080 fpl-brief:local
 ```
 
+**Render (current host).** `render.yaml` is a Blueprint for a free Docker web
+service that auto-deploys on every commit to `main` and uses a `/` healthcheck. To
+set it up in Render: New → Blueprint → choose this repo → Apply. Free instances
+sleep after about 15 idle minutes, so the first visit takes a moment to wake the
+site. `railway.json` below is kept in case you move back to Railway.
+
 **Railway (deployed from GitHub).** `railway.json` selects the Dockerfile builder,
 a `/` healthcheck (this passes only when the built frontend is in the image) and
 restart-on-failure. Railway builds on every push to `main`, including the

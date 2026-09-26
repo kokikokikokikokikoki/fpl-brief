@@ -1,0 +1,13 @@
+# Render Blueprint: New → Blueprint → select this repo → Apply.
+# Public, read-only FPL dashboard (Overseer decision 2026-09-26). No secrets or env vars are needed:
+# Render injects PORT and dashboard.py binds 0.0.0.0 when PORT is set.
+services:
+  - type: web
+    name: fpl-brief
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    branch: main
+    autoDeployTrigger: commit
+    healthCheckPath: /
