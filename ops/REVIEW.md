@@ -557,3 +557,149 @@ Nothing is released. No commit, stage, push, deploy, FPL network call, or POST t
 ### Release boundary
 
 Nothing is released. No commit, stage, push, deploy, FPL network call, or POST to `/api/refresh` or `/api/research` was made. `local/private_team.json` was not read.
+
+## Self-serve weekly workflow — independent review
+
+**Date:** 2026-09-26
+**Reviewer:** Claude Opus 5.5, an independent Supervisor/Reviewer subagent at high effort (HIGH-RISK tier: a new local write endpoint for private account data). It did not implement this task.
+**Verdict:** FAIL — CHANGES_REQUESTED
+
+### What holds
+
+- **CSRF.** `POST /api/private-team` requires `application/json`, so an HTML form (text/plain) gets 415. A cross-site `fetch` needs a preflight, and `OPTIONS` answers 501 with no CORS headers. `Origin` must also equal `http://<Host>`: `Origin: null`, a foreign origin, and a `http://127.0.0.1:PORT.evil.com/` Referer are all refused with 403.
+- **DNS rebinding and binding.**
+  - The Host allow-list (127.0.0.1, localhost, [::1]) blocks rebinding.
+  - An off-loopback bind is refused.
+- **Body size.** Absent, zero, negative, non-numeric and >64 KB lengths are refused before any read. The server speaks HTTP/1.0, so an unread body cannot be smuggled.
+- **Temp file.** It is written in `local/`, validated with `private_team.load`, and moved into place with `os.replace` only when the state is `ready` or `stale`. It is removed on every path. A bad paste leaves the existing file byte-identical (probed).
+- **No FPL calls.** There are no FPL network calls or write actions in the server code. The my-team link is only an `<a target=_blank rel="noopener noreferrer">` built from an integer team id.
+- **`GET /api/plan`.**
+  - It goes through `private_data()`, so off-loopback it returns `disabled` and then 422.
+  - It exposes nothing beyond what `/api/dashboard` already returns: bank and selling prices are already in the private summary.
+- **`plan.py` rules checked against counterexamples.**
+  - Uniqueness covers chained moves such as A→B, B→C and a sold player being re-bought.
+  - Owned and not-owned checks, same position, and full availability all hold.
+  - The club limit is checked over the whole planned squad.
+  - Budget = bank + selling prices − `now_cost`.
+  - Hits: `max(0, n − free) × cost`, and zero when unlimited.
+  - The base snapshot is untouched (it is deep-copied).
+- **Frontend.**
+  - Plan storage is validated on load.
+  - The plan strip, fixture strip and shortlist are escaped.
+  - The countdown is cleared on abort.
+  - Note placement is bounded (notes × 5–6 spots) and removes each failed `<text>`.
+
+### Findings
+
+- **Medium (blocking), `dashboard.py:507`: arbitrary pasted fields are stored verbatim.** The whole pasted object is saved as `my_team`, including any extra keys, up to 64 KB.
+  - **Probe:** a paste of valid my-team JSON plus `"password": "hunter2", "cookie": "sessionid=abc"` returned 200, and both values were written to `local/private_team.json`.
+  - **Why it blocks:** the task says credentials are "never accepted or stored". Only the fields the schema reads should be persisted: picks (element, position, selling/purchase price, is_captain, is_vice_captain), transfers (bank, made, cost, value, limit, status), and chips (name, status_for_entry, played_by_entry, start_event, stop_event, is_pending).
+- **Medium (blocking), `dashboard/app.ts:365` and `:373`: plan results are cached forever.** `planCache` is keyed only by the transfers query. It is never invalidated when `loadDashboard()` brings in new data, and network errors are cached too.
+  - **Scenario:** the Overseer tries a move while the capture is stale and gets "needs a fresh capture". They then import through the new box, and the strip keeps showing the old refusal until a page reload or a plan change.
+  - The same happens after a data refresh or a failed fetch, and a `ready` result can show an outdated lineup, budget or hits.
+  - **Fix:** clear `planCache`/`planRequest` whenever `state.data` is replaced, and don't cache the fetch-failure result.
+- **Low, `dashboard.py:497-498`: deeply nested JSON crashes the handler.** A body such as 60 000 × `[` makes `json.loads` raise `RecursionError`, which is not caught. The handler thread crashes and the connection closes with no response. No file is touched (probed). Catch `RecursionError` (or `ValueError`) and return 400.
+- **Low, `dashboard.py:497`: a short body hangs its thread.** When `Content-Length` is larger than the body actually sent, `rfile.read` blocks that handler thread until the client closes. There is no socket timeout. This is loopback only, so the impact is a local self-DoS.
+- **Low, `fpl_brief/private_team.py:15`: stale copy.** `IMPORT_HINT` still says "ask Claude to capture" in the Claude browser pane. The missing, invalid and stale messages should point to the new Import box.
+- **Low, `dashboard/tactics-board.ts:169` (via `fpl_brief/lineup.py` changes): sold captain renders as "—".** When a plan sells the captured captain, `changes.captain.from` is `None`, and the note reads "C — → X". Use the sold player's name or "sold".
+- **Low, `dashboard/tactics-board.ts:202`: countdown timer can outlive its board.** The function returns before `mounted?.abort()` when a later render has no `ready` lineup, so the previous countdown interval keeps writing to a detached node until the next ready mount.
+- **Info.**
+  - **Pre-existing, not introduced here: GET routes don't check Host.** `GET /api/dashboard` (and now `/api/plan`) check the bind address but not the Host header. A DNS-rebinding page could therefore read bank, selling prices and chips. Suggest a separate task that applies the `same_origin_local` Host allow-list to private GET routes.
+  - **`plan.py:71`:** `now_cost or 0` treats a catalog player with no price as free. This matches `candidates.py`.
+  - **Captain shortlist in a double gameweek:** it shows only `next_fixtures[:1]`, although the "double" tag is shown.
+  - **Test count:** the handoff reports 139 Python tests; this run found 138.
+
+### Checks
+
+- `python -m unittest discover -s tests`: 138 OK.
+- `node --test tests/*.mjs`: 10/10 pass.
+- `npm run typecheck --prefix dashboard`: clean.
+- `npm run build --prefix dashboard`: built.
+- `git diff --check`: exit 0.
+- **Throwaway probe server** on 127.0.0.1 at a random port, with `LOCAL`/`PRIVATE_TEAM` patched to a temp dir and config, snapshot and catalog stubbed. It covered:
+  - a valid paste;
+  - deep nesting;
+  - extra fields;
+  - a bad paste keeping the old file;
+  - text/plain;
+  - `Origin: null`;
+  - an [::1] Host;
+  - the Referer prefix trick;
+  - a short body;
+  - NaN;
+  - an `OPTIONS` preflight.
+
+  No `.tmp` leftovers were found.
+
+### Release boundary
+
+Nothing is released. No commit, stage, push, deploy, or FPL network call was made, and there was no POST to the servers on :8765/:8766 or to `/api/refresh`/`/api/research`. The real `local/private_team.json` was neither read nor written.
+
+## Self-serve weekly workflow — re-review
+
+**Date:** 2026-09-26
+**Reviewer:** Claude Opus 5.5, an independent Supervisor/Reviewer subagent at high effort (HIGH-RISK tier). It did not implement this task or its follow-up.
+**Verdict:** PASS — APPROVED LOCALLY
+
+### Blocking findings: resolved
+
+- **Import whitelisting (`dashboard.py`, `whitelist_my_team` / `IMPORT_FIELDS`).** Stray keys are now dropped: at the top level, in the `{my_team: …}` wrapper, as extra pick keys, and as extra transfer keys (probed: the secret was absent from the saved file). Non-dict picks are rejected with 422, and non-dict chips fail validation.
+- **Plan cache (`dashboard/app.ts:362-374`).**
+  - The key is `planQuery | snapshot.generated_at_utc | private_team.captured_at_utc`, so an import or a refresh changes it, and the plan (including a cached error) is re-checked.
+  - The callback re-renders only while the same transfers are still planned, and a re-render finds the cached key, so there is no loop.
+  - If data reloads mid-flight, there is at most one extra, bounded fetch.
+
+### Low items: resolved
+
+- **Deeply nested JSON:** returns 400 (probed).
+- **`Handler.timeout = 15`:** a short body is now dropped after 15.0 s (probed).
+- **`IMPORT_HINT`:** points to the Import box.
+- **Sold captain or vice:** the "from" is omitted when it is null, on the board (`tactics-board.ts:169-170`) and in the list (`lineup-helper.ts:81`).
+- **Abort ordering:** `mountTacticsBoard` aborts before its early return (`tactics-board.ts:201-204`).
+- **Double gameweeks:** captain options keep `next_fixtures[:max(1, fixtures)]` (`lineup.py:211`).
+
+### Pre-existing issue: closed
+
+On a loopback bind, `/api/*` GETs refuse any Host that is not local, using `host_is_local`. Probed results:
+
+- **Refused (403):**
+  - `evil.example:PORT`;
+  - `127.0.0.1.evil.example`;
+  - `localhost.`;
+  - a missing or empty Host;
+  - `//api/dashboard`;
+  - `/api/plan`.
+- **Accepted:** `127.0.0.1`, `localhost` in any case, `[::1]:PORT`, and a port-less `127.0.0.1`.
+- **Non-API paths:** static assets still serve, and `/API/…` and `/static/../api/…` return 404, never data.
+- **::1 bind:** it refuses a foreign Host and accepts `[::1]`.
+- **0.0.0.0 bind (Railway):** a foreign Host passes the check as before, and import is still 403.
+
+### Findings (non-blocking)
+
+- **Low, `dashboard.py` `whitelist_my_team`: allowed keys still accept arbitrary values.** It filters keys but not value types, and several allowed fields are never type-checked by `private_team._parse`. A crafted paste can therefore still store arbitrary content, including nested objects with any keys, in:
+  - picks: `is_captain`, `multiplier`, `element_type`;
+  - transfers: `status`;
+  - chips: `id`, `name`, `start_event`/`stop_event`, `chip_type`;
+  - `picks_last_updated`.
+
+  Probed: for example `"is_captain": {"cookie": "…"}` was saved with 200. The report's claim that nested keys are dropped is therefore inaccurate. The practical risk is negligible: only the local user's own same-origin page can post, and a real FPL paste never carries such values. Suggested hardening:
+  - accept only scalar (int, bool, None, or short string) values;
+  - accept only int lists for `played_by_entry`;
+  - cap string lengths.
+- **Info.**
+  - A transient fetch failure stays cached for its key until the next data reload (by design).
+  - `host_is_local` accepts a malformed `[::1]evil` Host. Browsers cannot send one, so it is not exploitable.
+  - Pre-existing and out of scope: `POST /api/refresh` and `/api/research` have no Host or Origin check. A cross-site form could trigger a public refresh, which reads no private data.
+
+### Checks
+
+- `python -m unittest discover -s tests`: 143 OK.
+- `node --test tests/*.mjs`: 10/10 pass.
+- `npm run typecheck --prefix dashboard`: clean.
+- `npm run build --prefix dashboard`: built.
+- `git diff --check`: exit 0.
+- **Throwaway probe servers** on 127.0.0.1, 0.0.0.0 and ::1 with random ports, with `LOCAL`/`PRIVATE_TEAM` patched to a temp dir and config, snapshot and catalog stubbed. No `.tmp` leftovers were found.
+
+### Release boundary
+
+Approved locally only; nothing is released. No commit, stage, push, deploy, or FPL network call was made. There was no POST to :8765/:8766 and no call to `/api/refresh`/`/api/research`. The real `local/private_team.json` was neither read nor written.

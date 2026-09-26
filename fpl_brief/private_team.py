@@ -12,8 +12,8 @@ from .decision import parse_time
 
 SCHEMA_VERSION = 1
 DEFAULT_STALE_AFTER_HOURS = 24
-IMPORT_HINT = ("Sign in to FPL in the Claude browser pane and ask Claude to capture your team data "
-               "into local/private_team.json.")
+IMPORT_HINT = ("Update it under Overview → Your FPL account → Update from FPL "
+               "(or ask Claude to capture it from its browser pane).")
 
 
 def _int(value, minimum=0):

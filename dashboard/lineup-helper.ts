@@ -12,6 +12,7 @@ export interface LineupPlayer {
   flags: string[];
   blockers: string[];
   reason: string;
+  next_fixtures?: Array<{ gameweek: number; opponent: string; venue: string; difficulty: number | null }>;
 }
 
 interface LineupPick { id: number; name: string | null; estimate: number; flags: string[] }
@@ -28,6 +29,7 @@ export type LineupData =
     bench: LineupPlayer[];
     captain: LineupPick;
     vice: LineupPick;
+    captain_options?: Array<LineupPick & { team: string | null; fixtures: number; next_fixtures: NonNullable<LineupPlayer["next_fixtures"]> }>;
     changes: {
       source: string;
       current_xi?: number[];
@@ -76,7 +78,7 @@ export function renderLineupHelper(data: LineupData | undefined, players: TeamDe
   const c = data.changes;
   const diff = c.none
     ? `<p>Matches ${esc(c.source)}. No changes needed by this method.</p>`
-    : `<ul class="lineup-changes">${c.start.length ? `<li><strong>Start:</strong> ${c.start.map(esc).join(", ")}</li>` : ""}${c.bench.length ? `<li><strong>Bench:</strong> ${c.bench.map(esc).join(", ")}</li>` : ""}${c.captain ? `<li><strong>Captain:</strong> ${esc(c.captain.from)} → ${esc(c.captain.to)}</li>` : ""}${c.vice ? `<li><strong>Vice:</strong> ${esc(c.vice.from)} → ${esc(c.vice.to)}</li>` : ""}${c.bench_order_changed ? "<li><strong>Bench order</strong> differs (see bench below).</li>" : ""}</ul><p class="small">Compared with ${esc(c.source)}.</p>`;
+    : `<ul class="lineup-changes">${c.start.length ? `<li><strong>Start:</strong> ${c.start.map(esc).join(", ")}</li>` : ""}${c.bench.length ? `<li><strong>Bench:</strong> ${c.bench.map(esc).join(", ")}</li>` : ""}${c.captain ? `<li><strong>Captain:</strong> ${c.captain.from ? `${esc(c.captain.from)} → ` : ""}${esc(c.captain.to)}</li>` : ""}${c.vice ? `<li><strong>Vice:</strong> ${c.vice.from ? `${esc(c.vice.from)} → ` : ""}${esc(c.vice.to)}</li>` : ""}${c.bench_order_changed ? "<li><strong>Bench order</strong> differs (see bench below).</li>" : ""}</ul><p class="small">Compared with ${esc(c.source)}.</p>`;
   const captainNote = (pick: LineupPick) => `${esc(pick.name)} (FPL est. ${esc(pick.estimate)}${pick.flags.length ? `; ${pick.flags.map(esc).join("; ")}` : ""})`;
   return `<section class="panel lineup-helper" aria-labelledby="lineup-title">${head(data.gameweek)}
     <div class="lineup-summary"><div><span class="metric-label">Formation</span><strong>${esc(data.formation)}</strong></div><div><span class="metric-label">Captain</span><strong>${captainNote(data.captain)}</strong></div><div><span class="metric-label">Vice</span><strong>${captainNote(data.vice)}</strong></div><div><span class="metric-label">XI FPL estimate</span><strong>${esc(data.xi_estimate_total)}</strong></div></div>

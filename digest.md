@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-25T12:39:54.313401+00:00 · squad snapshot GW5_
+_Snapshot 2026-09-26T04:03:12.207877+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -52,7 +52,7 @@ _Snapshot 2026-09-25T12:39:54.313401+00:00 · squad snapshot GW5_
 | Calvert-Lewin | LEE | 4 | £6.0m |  |
 | Dubravka | TOT | 1 | £4.0m |  |
 | João Pedro | CHE | 4 | £7.7m |  |
-| De Cuyper | BHA | 2 | £4.9m |  |
+| De Cuyper | BHA | 2 | £5.0m |  |
 | Groß | BHA | 3 | £5.8m |  |
 
 ## Six-gameweek fixture horizon

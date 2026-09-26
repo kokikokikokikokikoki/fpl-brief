@@ -1,4 +1,79 @@
-# Active task — Tactics Board site redesign
+# Active task — Self-serve weekly workflow ("fully functional")
+
+**Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort, because it adds a local write endpoint for private account data
+**Status:** APPROVED LOCALLY (re-review 2026-09-26, local only; see ops/REVIEW.md)
+**Date:** 2026-09-26
+**Milestone:** Let the Overseer run the whole weekly decision without Claude in the loop: self-serve account import, transfer planning with a re-optimised XI and captain, a fixture outlook, and a captain shortlist. Overseer request 2026-09-26: "make it fully functional".
+
+## Required implementation
+
+1. **Self-serve account import.**
+   - `POST /api/private-team` accepts the raw JSON of FPL's `/api/my-team/{team_id}/`, which the Overseer copies from their own signed-in browser.
+   - The server wraps it into the `local/private_team.json` schema (`team_id` from config, `captured_at_utc` set to now, and `source`), validates it with the same `private_team` rules, and writes it atomically.
+   - **Safety requirements:**
+     - The endpoint answers only when the server is bound to loopback.
+     - The `Origin` or `Referer` header must be the same origin.
+     - The body is capped at 64 KB and must be `application/json`.
+     - Credentials are never accepted or stored, the file is never served beyond the existing loopback-guarded summary, and no FPL call is made.
+   - **UI:** the "Your FPL account" panel gets an Import section. It links to the exact my-team URL for the configured team, which opens in the user's own browser, and has a paste box, an Import button, and clear success or error states.
+2. **Transfer planner.**
+   - `GET /api/plan?transfers=OUT:IN[,OUT:IN…]` (up to 3 pairs) validates each move:
+     - the outgoing player is owned and the incoming one is not;
+     - both play the same position;
+     - the incoming player is available;
+     - the club limit of 3 holds after all moves;
+     - the budget holds, using the ready account's selling prices plus bank (refused without a usable capture);
+     - no player is repeated.
+   - It then returns `lineup.suggest` for the modified squad, plus a plan summary: budget left, transfers, free transfers used, hit cost (`transfers_made` and `limit` from the account), and the change in XI estimate against no transfers.
+   - **UI:** Candidate lens rows get "Try on board". My Squad shows a "Planned transfers" strip on the board with each OUT → IN pair (removable) and the plan summary. The board renders the re-optimised XI. Plans are browser-local, namespaced by gameweek, and validated on load.
+3. **Fixture outlook and captain shortlist.**
+   - `lineup.suggest` adds each player's next 3 fixtures (opponent, H/A, FDR) and `captain_options`: the top 3 eligible, fully available starters, with estimate, fixture count and flags.
+   - The board's picked-up detail shows the fixture strip, and Coach's notes shows the shortlist.
+4. **Polish.**
+   - The deadline countdown ticks every 30 s and is torn down on unmount.
+   - Free transfers show "—" when absent.
+   - The Rivals sort is robust to non-numeric ranks.
+
+## Allowed paths
+
+`dashboard.py`, `fpl_brief/lineup.py`, `fpl_brief/private_team.py`, `fpl_brief/plan.py` (new), `dashboard/**` (excluding `node_modules`/`dist`), `tests/**`, `README.md`, and `ops/IMPLEMENTATION_REPORT.md`.
+
+## Acceptance
+
+- **Import tests:**
+  - happy path, with the correct file written in a temporary directory;
+  - refused when bound off-loopback;
+  - a cross-origin `Origin` rejected;
+  - an oversized body, a wrong content type, malformed JSON, a wrong team, or a squad mismatch are rejected;
+  - no partial file is left behind.
+- **Plan tests:**
+  - every validation rule;
+  - budget arithmetic against selling prices;
+  - hits (free vs −4 each, and unlimited);
+  - the re-optimised XI and captain;
+  - refusal without a usable account.
+- **UI tests:** escaping, the plan storage round-trip and corruption handling, and the countdown teardown.
+- **Suite:** all suites, typecheck, build and `git diff --check` pass. Live checks at desktop and 375px.
+- **Release:** local only. No FPL write action; no credentials.
+
+### Follow-up (bounded, from review 2026-09-26)
+
+1. **Import stores only schema fields (`dashboard.py`).**
+   - Persist only the schema fields of picks, transfers and chips; drop everything else.
+   - Catch `RecursionError`/`ValueError` from `json.loads` and return 400.
+   - Add a test that a paste with extra `password`/`cookie` keys is saved without them.
+2. **Plan cache invalidation (`dashboard/app.ts`).**
+   - Clear `planCache` and `planRequest` whenever dashboard data is reloaded.
+   - Do not cache the fetch-failure result.
+   - Add a test, or a live check, that importing after a "needs a fresh capture" refusal re-checks the plan.
+3. **Optional low fixes.**
+   - Update `IMPORT_HINT` to point to the Import box.
+   - Label a sold captain in `changes.captain.from`.
+   - Abort the previous board mount before the early return in `mountTacticsBoard`.
+
+---
+
+# Closed task — Tactics Board site redesign
 
 **Owner:** Programmer (Claude Opus 5.5, medium effort); review by a separate Opus 5.5 subagent, plus the Impeccable finish reviewer
 **Status:** APPROVED (re-review 2026-09-25, local only; see ops/REVIEW.md)

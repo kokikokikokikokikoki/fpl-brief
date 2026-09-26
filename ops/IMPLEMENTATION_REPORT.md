@@ -630,3 +630,102 @@ Verification:
 **Verification.**
 - 127 Python tests, 10 Node tests, typecheck, build, py_compile, and `git diff --check` all pass.
 - Full-page captures were regenerated in `.impeccable/review/` at 1440 and 375px. Checked desktop.png and mobile.png: no collisions, board fully in view.
+
+## Self-serve weekly workflow — Programmer handoff
+
+**Date:** 2026-09-26 · **Status:** IN_REVIEW · **Programmer:** Claude Opus 5.5
+
+### Changed paths
+
+- **`dashboard.py`**
+  - **`POST /api/private-team` (`import_private_team`).** Refused unless the server is bound to loopback and `same_origin_local()` passes:
+    - the Host hostname is 127.0.0.1, localhost or [::1] (blocks DNS rebinding);
+    - `Origin` equals `http://<Host>`, or, with no Origin, `Referer` is on that origin;
+    - the request is `application/json`;
+    - the body is between 1 byte and 64 KB (`MAX_IMPORT_BYTES`);
+    - the body is a JSON object with picks, chips and transfers. A `{my_team: …}` wrapper is also accepted.
+
+    The server wraps the data (`team_id` from config, `captured_at_utc` set to now, and `source`), writes it to a temp file in `local/`, and validates it with `private_team.load`. Only `ready` or `stale` data is moved into place with `os.replace`. The temp file is always removed.
+  - **`GET /api/plan?transfers=OUT:IN,…`** uses `plan.parse_transfers`, `private_data()` (loopback-guarded) and `plan.build`. It returns 400, 422, or 200.
+- **`fpl_brief/plan.py` (new).** Builds a transfer plan. It requires a usable account and enforces:
+  - unique players, and OUT owned while IN is not;
+  - the same position;
+  - IN fully available;
+  - the three-per-club limit over the whole planned squad;
+  - budget = bank + selling prices − `now_cost`;
+  - hits = max(0, n − free) × `hit_cost`, and none for `unlimited`.
+
+  It re-optimises with `lineup.suggest` on a deep-copied snapshot (swapped picks lose the armband) and returns the planned lineup plus a summary: transfers, `budget_left`, `paid_transfers`, `hit_points`, `xi_delta`, and `net_delta` (after hits).
+- **`fpl_brief/lineup.py`.** `_upcoming` adds each player's `next_fixtures` (the next 3: opponent, H/A, FDR 1–5 or null) and `captain_options` (the top 3 eligible, fully available starters in captain order).
+- **Frontend**
+  - **`transfer-plan.ts` (new).** Holds the browser-local plan, capped at 3 and validated on load against the owned squad, under a namespaced key per gameweek. `addTransfer` replaces a move for the same OUT or IN. `renderPlanStrip` is escaped and has remove and clear controls.
+  - **`app.ts`**
+    - `renderSquad` fetches `/api/plan` for a saved plan, caches it by key, renders the board with the planned lineup, and wires remove and clear.
+    - `runtime.planTransfer` is added.
+    - `importAccount()` checks the paste client-side, POSTs it, reloads, and reports in the status line.
+    - The rivals rank sort is robust to non-numeric ranks.
+  - **`desk-tools.ts`.** Candidate rows get a "Try on board" button, which reports errors via `runtime.status`.
+  - **`team-decision-desk.ts`.** The import section links to the exact my-team URL (integer team id only; `rel="noopener noreferrer"`), with a paste box, an Import button and an explanation. It is open by default when the capture is missing, invalid or stale.
+  - **`tactics-board.ts`**
+    - fixture strip in the picked-up detail;
+    - captain shortlist in Coach's notes;
+    - the deadline ticks every 30 s and the timer is cleared on abort;
+    - free transfers show "—" when absent;
+    - marker notes are placed collision-aware against the visible shirt, plate, estimate and badge boxes, with pitch-corner fallbacks, and skipped if none is clear.
+  - **CSS.** Adds styles for the fixture strip, the shortlist, the plan strip, the import section, and `.visually-hidden`, and makes `.table-wrap` `position: relative` so hidden header labels can't overflow the page.
+- **Tests**
+  - `tests/test_plan.py` (6);
+  - `PrivateTeamImportTests` (4: happy path; cross-site, rebinding, missing-origin; off-loopback; seven bad-paste cases with no file written);
+  - `TransferPlanUiTests`;
+  - the countdown-teardown assertion.
+- **`README.md`.** Documents the self-serve import and the weekly workflow.
+
+### Verification
+
+- 139 Python tests, 10 Node tests, typecheck, build, py_compile and `git diff --check` all pass.
+- **Live (the Overseer's account; public refresh plus the UI import path).** The my-team JSON was copied from the signed-in FPL tab and pasted into the new import box. It gave state `ready`, age 0, 2 free transfers and value £101.3m, with a status-line confirmation.
+- **Transfer planner.**
+  - Candidate lens → Szoboszlai → "Try on board" (Dewsbury-Hall) jumped to the board: +0 (he would be benched), 1 of 2 free transfers, £0.5m left.
+  - João Pedro → Kostoulas: re-optimised to a 3-4-3 with Kostoulas starting, +1.6, £2.2m left. Marker notes placed without collisions at 537px board width.
+  - The test plan was cleared afterwards.
+- **375px.** All seven views are exactly 375px wide. The fix above resolved a 519px overflow in the Candidate lens.
+
+### Limitations
+
+- The plan values only next-gameweek `ep_next` minus hits; multi-week value is not modelled, and the UI says so.
+- Candidate lens ranking is unchanged (xGI/90).
+- The import's `Referer` fallback accepts same-origin referers when Origin is absent, which older browsers may do.
+
+### Bounded follow-up — 2026-09-26 independent review findings
+
+- **[Blocking] Stray fields in the import (`dashboard.py`).** `whitelist_my_team()` rebuilds the paste from `IMPORT_FIELDS` only:
+  - pick keys;
+  - chip keys;
+  - transfer keys;
+  - `picks_last_updated`, capped at 40 characters.
+
+  Any other key, at the top level or nested, is dropped before validation or storage. Test: `test_only_known_fpl_fields_are_saved` (password, cookie, token and secret all absent from the saved file).
+- **[Blocking] Stale plan after a reload (`dashboard/app.ts`).** The plan cache key now includes `snapshot.generated_at_utc` and `private_team.captured_at_utc`. After a refresh or import, the plan is re-checked, and a cached error lasts only until the next data reload. The fetch uses `planQuery(plan)` alone. A static test guards the key.
+- **Low items**
+  - `RecursionError` on deeply nested JSON now returns 400 (test).
+  - `Handler.timeout = 15` stops a short or stalled upload from holding a thread.
+  - `IMPORT_HINT` points to "Overview → Your FPL account → Update from FPL".
+  - Captain and vice change text drops "— →" when the old armband holder was sold (board and list).
+  - `mountTacticsBoard` aborts the previous mount before any early return (static test).
+  - Captain options list every fixture in a double gameweek (test).
+- **Pre-existing issue now closed.** On a loopback-bound server, `/api/*` GETs refuse any Host other than 127.0.0.1, localhost or [::1] (DNS rebinding), via the shared `host_is_local()`, which is also used by the import. Test: `test_api_reads_refuse_foreign_host_names_on_loopback`.
+- **Verification**
+  - 143 Python tests, 10 Node tests, typecheck and build pass.
+  - The live app on localhost:8766 still loads: the lineup is ready, the account is ready, the board has 15 magnets, the shortlist renders, and the clock reads 14d 6h.
+  - The previous report's "139" was a miscount; the reviewer ran 138.
+
+### Post-approval hardening (re-review low/info items)
+
+- `whitelist_my_team` keeps a known field only when its value is plain:
+  - a finite number, a boolean, null, or a string of at most 64 characters;
+  - or a list of at most 64 integers.
+
+  Crafted nested values in the pick, transfer and chip fields and in `picks_last_updated` are dropped. Test: `test_known_fields_keep_only_plain_values`.
+- On a loopback bind, `POST /api/refresh`, `/api/research` and `/api/plans/compare` require `same_origin_local()`. A Railway `0.0.0.0` bind is unaffected. Test: `test_actions_refuse_cross_site_posts_on_loopback`.
+- Verified live: the dashboard's own Refresh still works ("Snapshot refreshed", generated 2026-09-26 04:03 UTC).
+- 145 Python tests pass.

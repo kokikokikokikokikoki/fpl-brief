@@ -53,6 +53,7 @@ interface ResearchResponse {
 }
 
 interface Candidate {
+  id: number;
   team_id?: number | null;
   name: string;
   price: number;
@@ -222,11 +223,17 @@ export function mountDeskTools(runtime: DashboardRuntime): {
     try {
       const result = await requestJson<CandidateResponse>(`/api/candidates?replace_id=${encodeURIComponent(replaceId)}&minimum_minutes=${encodeURIComponent(minimum)}`);
       const rows = result.candidates.length
-        ? result.candidates.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td>${escapeHtml(player.availability)}</td></tr>`).join("")
-        : '<tr><td colspan="6">No players meet every selected filter.</td></tr>';
+        ? result.candidates.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td>${escapeHtml(player.availability)}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
+        : '<tr><td colspan="7">No players meet every selected filter.</td></tr>';
       const money = (tenths: number): string => `£${(tenths / 10).toFixed(1)}m`;
       const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).</p>`;
-      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p><p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Availability</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p><p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Availability</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      output.querySelectorAll<HTMLButtonElement>("[data-try-in]").forEach((button) => {
+        button.onclick = () => {
+          const problem = runtime.planTransfer?.(Number(replaceId), Number(button.dataset.tryIn));
+          if (problem) runtime.status(problem);
+        };
+      });
     } catch (error) {
       output.innerHTML = `<div class="evidence-warning" role="alert">${escapeHtml(messageFrom(error))}</div>`;
     }

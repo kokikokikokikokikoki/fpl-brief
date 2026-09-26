@@ -139,11 +139,22 @@ function countdown(iso: string): string {
 
 const money = (tenths: unknown) => (typeof tenths === "number" && Number.isFinite(tenths) ? `£${(tenths / 10).toFixed(1)}m` : "—");
 
+export function fixtureStrip(fixtures: LineupPlayer["next_fixtures"]): string {
+  if (!fixtures?.length) return "";
+  return `<ol class="fixture-strip" aria-label="Next fixtures">${fixtures.map((f) => `<li class="fdr-${f.difficulty ?? 0}"><span>GW${esc(f.gameweek)}</span> ${esc(f.opponent)} (${esc(f.venue)})<span class="visually-hidden">, FPL difficulty ${esc(f.difficulty ?? "unknown")}</span></li>`).join("")}</ol>`;
+}
+
+function captainShortlist(data: Ready): string {
+  const options = data.captain_options ?? [];
+  if (!options.length) return "";
+  return `<section><h3>Captain shortlist</h3><ol class="captain-list">${options.map((o, index) => `<li><strong>${esc(o.name)}</strong> <span class="cap-est">${esc(o.estimate)} est.</span>${o.fixtures > 1 ? ' <span class="cap-dgw">double</span>' : ""}${index === 0 ? ' <span class="hand red">← armband</span>' : ""}${fixtureStrip(o.next_fixtures)}</li>`).join("")}</ol><p class="fine">Ranked by FPL's estimate among fully available starters. Weigh the fixture and today's team news.</p></section>`;
+}
+
 function stats(data: Ready, account: PrivateTeamData | undefined): string {
   const ready = account?.usable === true;
-  const free = ready ? (account.free_transfers === "unlimited" ? "Unlimited" : String(account.free_transfers)) : "—";
+  const free = ready && account.free_transfers !== undefined && account.free_transfers !== null ? (account.free_transfers === "unlimited" ? "Unlimited" : String(account.free_transfers)) : "—";
   const note = ready ? "" : '<span class="stat-note">needs a fresh account capture</span>';
-  return `<dl class="board-stats"><div class="deadline"><dt>to GW${esc(data.gameweek)} deadline</dt><dd>${esc(countdown(data.deadline_utc))}</dd></div><div><dt>free transfers</dt><dd>${esc(free)}</dd>${note}</div><div><dt>in the bank</dt><dd>${esc(ready ? money(account.bank) : "—")}</dd></div><div><dt>XI FPL estimate</dt><dd class="board-total-value">${esc(data.xi_estimate_total)}</dd></div></dl>`;
+  return `<dl class="board-stats"><div class="deadline"><dt>to GW${esc(data.gameweek)} deadline</dt><dd class="countdown" data-deadline="${esc(data.deadline_utc)}">${esc(countdown(data.deadline_utc))}</dd></div><div><dt>free transfers</dt><dd>${esc(free)}</dd>${note}</div><div><dt>in the bank</dt><dd>${esc(ready ? money(account.bank) : "—")}</dd></div><div><dt>XI FPL estimate</dt><dd class="board-total-value">${esc(data.xi_estimate_total)}</dd></div></dl>`;
 }
 
 export function renderTacticsBoard(data: LineupData | undefined, account?: PrivateTeamData): string {
@@ -155,8 +166,8 @@ export function renderTacticsBoard(data: LineupData | undefined, account?: Priva
   const change = [
     ...c.start.map((name) => `<li class="hand green">+ start ${esc(name)}</li>`),
     ...c.bench.map((name) => `<li class="hand red">− bench ${esc(name)}</li>`),
-    ...(c.captain ? [`<li class="hand blue">C ${esc(c.captain.from)} → ${esc(c.captain.to)}</li>`] : []),
-    ...(c.vice ? [`<li class="hand blue">V ${esc(c.vice.from)} → ${esc(c.vice.to)}</li>`] : []),
+    ...(c.captain ? [`<li class="hand blue">C ${c.captain.from ? `${esc(c.captain.from)} → ` : ""}${esc(c.captain.to)}</li>`] : []),
+    ...(c.vice ? [`<li class="hand blue">V ${c.vice.from ? `${esc(c.vice.from)} → ` : ""}${esc(c.vice.to)}</li>`] : []),
   ].join("");
   return `<section class="tactics" aria-label="This week's board" data-gw="${esc(data.gameweek)}">
     ${stats(data, account)}
@@ -176,6 +187,7 @@ export function renderTacticsBoard(data: LineupData | undefined, account?: Priva
         <p class="notes-src">Suggestion compared with ${esc(c.source)}.</p>
         <section><h3>Changes</h3>${c.none ? '<p class="hand green">No changes needed.</p>' : `<ul class="hand-list">${change}</ul>`}${c.bench_order_changed ? "<p>Bench order changes too.</p>" : ""}</section>
         <section><h3>Your board</h3><div class="board-summary" aria-live="polite"></div></section>
+        ${captainShortlist(data)}
         <section><h3>Bench Boost</h3><p>${esc(data.bench_boost.hint)}</p></section>
         <section class="picked" aria-live="polite"><h3>Picked up</h3><div class="picked-body"><p>Pick up a shirt to see why it's there. Drag it, or select two shirts, to swap them.</p></div></section>
         <p class="jev">Want today's team news weighed in? Ask <strong>Jev</strong> (Claude) in Claude Code: “who should I bench this week?”</p>
@@ -186,9 +198,10 @@ export function renderTacticsBoard(data: LineupData | undefined, account?: Priva
 }
 
 export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined, context: TeamDecisionPlayer[] = [], storage: StorageLike | null = safeStorage()): void {
+  mounted?.abort();
+  mounted = null;
   const section = root.querySelector<HTMLElement>(".tactics");
   if (!section || !data || data.state !== "ready") return;
-  mounted?.abort();
   mounted = new AbortController();
   const signal = mounted.signal;
   const players = boardPlayers(data);
@@ -215,29 +228,60 @@ export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined
     layer.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
     const trayTop = section.querySelector<HTMLElement>(".tray")!.getBoundingClientRect().top - box.top;
     const current = new Set(data.changes.current_xi ?? []);
-    const paths: string[] = [];
-    for (const id of state.xi) {
-      if (!current.size || current.has(id)) continue;
+    const strokes: string[] = [];
+    const notes: Array<{ cls: string; text: string; spots: Array<{ x: number; y: number; anchor: "start" | "end" }> }> = [];
+    const incoming = state.xi.filter((id) => current.size && !current.has(id));
+    incoming.forEach((id, index) => {
       const el = rows.querySelector<HTMLElement>(`.magnet[data-id="${id}"]`);
-      if (!el) continue;
+      if (!el) return;
       const r = el.getBoundingClientRect();
       const x = r.left - box.left + r.width / 2, y = r.bottom - box.top + 2;
       const wobble = (id % 7) - 3;
-      paths.push(`<path class="stroke green" d="M${x + 18} ${trayTop - 6} Q${x + 34 + wobble} ${(trayTop + y) / 2} ${x + 6} ${y + 4}"/><path class="stroke green" d="M${x + 1} ${y + 14} L${x + 6} ${y + 4} L${x + 15} ${y + 10}"/>`);
-      const name = players.get(id)?.name ?? "";
+      strokes.push(`<path class="stroke green" d="M${x + 18} ${trayTop - 6} Q${x + 34 + wobble} ${(trayTop + y) / 2} ${x + 6} ${y + 4}"/><path class="stroke green" d="M${x + 1} ${y + 14} L${x + 6} ${y + 4} L${x + 15} ${y + 10}"/>`);
       const right = x + 18 < box.width * 0.62;
-      paths.push(`<text class="note green" x="${right ? x + 30 : x + 6}" y="${trayTop - 22}" text-anchor="${right ? "start" : "end"}">IN: ${esc(name)} ↑</text>`);
-    }
+      const baseY = trayTop - 22 - index * 24;
+      notes.push({ cls: "green", text: `IN: ${players.get(id)?.name ?? ""} ↑`, spots: [
+        { x: right ? x + 30 : x + 6, y: baseY, anchor: right ? "start" : "end" },
+        { x: right ? x + 6 : x + 30, y: baseY, anchor: right ? "end" : "start" },
+        { x: right ? x + 30 : x + 6, y: (trayTop + y) / 2, anchor: right ? "start" : "end" },
+        { x: 18, y: baseY, anchor: "start" },
+        { x: box.width - 18, y: baseY, anchor: "end" },
+      ] });
+    });
     const captain = rows.querySelector<HTMLElement>(`.magnet[data-id="${data.captain.id}"]`);
     if (captain) {
       const r = captain.getBoundingClientRect();
       const cx = r.left - box.left + r.width / 2, cy = r.top - box.top + r.height * 0.42;
-      paths.push(`<ellipse class="stroke red" cx="${cx}" cy="${cy}" rx="${r.width * 0.56}" ry="${r.height * 0.58}" transform="rotate(-6 ${cx} ${cy})"/>`);
-      const label = data.changes.captain ? `armband → ${data.captain.name}` : "captain";
+      strokes.push(`<ellipse class="stroke red" cx="${cx}" cy="${cy}" rx="${r.width * 0.56}" ry="${r.height * 0.58}" transform="rotate(-6 ${cx} ${cy})"/>`);
       const left = cx < box.width / 2;
-      paths.push(`<text class="note red" x="${left ? cx + r.width * 0.62 : cx - r.width * 0.62}" y="${cy - r.height * 0.48}" text-anchor="${left ? "start" : "end"}" transform="rotate(-4 ${cx} ${cy})">${esc(label)}</text>`);
+      const side = r.width * 0.62;
+      notes.push({ cls: "red", text: data.changes.captain ? `armband → ${data.captain.name}` : "captain", spots: [
+        { x: left ? cx + side : cx - side, y: cy - r.height * 0.48, anchor: left ? "start" : "end" },
+        { x: left ? cx - side : cx + side, y: cy - r.height * 0.48, anchor: left ? "end" : "start" },
+        { x: cx, y: cy + r.height * 0.72, anchor: "start" },
+        { x: left ? cx + side : cx - side, y: cy + r.height * 0.1, anchor: left ? "start" : "end" },
+        { x: 18, y: 34, anchor: "start" },
+        { x: box.width - 18, y: 34, anchor: "end" },
+      ] });
     }
-    layer.innerHTML = paths.join("");
+    layer.innerHTML = strokes.join("");
+    // Place each note at the first spot that clears every shirt, plate and earlier note; skip it otherwise.
+    const obstacles = [...rows.querySelectorAll<Element>(".magnet .jersey, .magnet .plate, .magnet .magnet-est, .magnet .arm")].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left - box.left - 2, right: r.right - box.left + 2, top: r.top - box.top - 2, bottom: r.bottom - box.top + 2 };
+    });
+    const hits = (a: { left: number; right: number; top: number; bottom: number }) =>
+      a.left < 0 || a.right > box.width || a.top < 0 || obstacles.some((o) => a.left < o.right && a.right > o.left && a.top < o.bottom && a.bottom > o.top);
+    for (const note of notes) {
+      for (const spot of note.spots) {
+        layer.insertAdjacentHTML("beforeend", `<text class="note ${note.cls}" x="${spot.x}" y="${spot.y}" text-anchor="${spot.anchor}">${esc(note.text)}</text>`);
+        const text = layer.lastElementChild as SVGTextElement;
+        const b = text.getBBox();
+        const rect = { left: b.x, right: b.x + b.width, top: b.y, bottom: b.y + b.height };
+        if (!hits(rect)) { obstacles.push(rect); break; }
+        text.remove();
+      }
+    }
   };
 
   const summary = () => {
@@ -257,7 +301,7 @@ export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined
     const row = notes.get(id);
     const status = p.blockers.length ? p.blockers.join(", ") : p.flags.length ? p.flags.join(", ") : "Available";
     const research = row?.research.filter((item) => !item.stale).slice(0, 2).map((item) => `<li><span class="src">${esc(item.publisher || "Source")} · captured, unverified</span> ${esc(item.text)}</li>`).join("") ?? "";
-    section.querySelector<HTMLElement>(".picked-body")!.innerHTML = `<p class="picked-name">${esc(p.name)} <span>${esc(p.role)} · ${esc(p.team)}</span></p><p>${esc(p.reason)}</p><dl><dt>FPL estimate</dt><dd>${esc(p.estimate)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${row?.news ? `<dt>FPL note</dt><dd>${esc(row.news)}</dd>` : ""}</dl>${research ? `<ul class="picked-news">${research}</ul>` : ""}`;
+    section.querySelector<HTMLElement>(".picked-body")!.innerHTML = `<p class="picked-name">${esc(p.name)} <span>${esc(p.role)} · ${esc(p.team)}</span></p><p>${esc(p.reason)}</p>${fixtureStrip(p.next_fixtures)}<dl><dt>FPL estimate</dt><dd>${esc(p.estimate)}</dd><dt>Status</dt><dd>${esc(status)}</dd>${row?.news ? `<dt>FPL note</dt><dd>${esc(row.news)}</dd>` : ""}</dl>${research ? `<ul class="picked-news">${research}</ul>` : ""}`;
   };
 
   const render = () => {
@@ -367,6 +411,11 @@ export function mountTacticsBoard(root: ParentNode, data: LineupData | undefined
     say("Board reset to the suggestion.");
   }, { signal });
   window.addEventListener("resize", () => requestAnimationFrame(drawMarkers), { signal });
+  const clock = section.querySelector<HTMLElement>(".countdown");
+  if (clock) {
+    const timer = window.setInterval(() => { clock.textContent = countdown(clock.dataset.deadline ?? ""); }, 30_000);
+    signal.addEventListener("abort", () => window.clearInterval(timer));
+  }
   render();
 }
 

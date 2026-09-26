@@ -4,6 +4,7 @@ import { mountSquadFormation, renderSquadFormation } from "./squad-formation";
 import { renderLineupHelper, type LineupData } from "./lineup-helper";
 import { mountTacticsBoard, renderTacticsBoard } from "./tactics-board";
 import { jerseySvg } from "./kits";
+import { addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
 import "./tactics-board.css";
 import "./lineup-helper.css";
 import { renderPrivateTeamPanel, renderTeamDecisionDesk } from "./team-decision-desk";
@@ -142,6 +143,7 @@ export interface DashboardData {
   team_decision: TeamDecisionData;
   private_team?: PrivateTeamData;
   lineup?: LineupData;
+  config?: { team_id?: number };
 }
 
 export interface PrivateTeamData {
@@ -170,6 +172,8 @@ export interface DashboardRuntime {
   status(message: string): void;
   /** Optional club shirt renderer keyed by FPL team id. */
   kit?(teamId: number | null | undefined): string;
+  /** Add OUT → IN to the browser-local transfer plan and open the board; returns an error message or null. */
+  planTransfer?(out: number, incoming: number): string | null;
 }
 
 interface StorageLike {
@@ -312,7 +316,39 @@ function renderOverview(): void {
   actions.push({ title: "Protect the next deadline", text: `GW${escapeHtml(next.id ?? "?")} closes ${formatDate(next.deadline_time)}. Your public squad is the baseline, not unsubmitted moves.`, tag: "Plan", cls: "good" });
   actions.push({ title: "Keep differentials intentional", text: "Use the rival view to see shared picks before chasing a popular replacement.", tag: "League", cls: "warn" });
   required<HTMLElement>("#overview").innerHTML = `<div class="decision-strip"><div class="decision-lead"><div class="metric-label">This week's call</div><div class="metric-value">${flagged.length ? "Squad cover first" : "Keep the transfer flexible"}</div><div class="small">${flagged.length ? "Availability risk is the urgent public-snapshot fact." : "No player is currently flagged by FPL."}</div></div><div><div class="metric-label">League position</div><div class="metric-value">${escapeHtml(league.rank ?? "—")}<span class="small"> / 102</span></div><div class="small">${escapeHtml(league.points ?? "—")} pts</div></div><div><div class="metric-label">Leader gap</div><div class="metric-value">${escapeHtml(league.gap_to_leader ?? "—")}</div><div class="small">${escapeHtml(league.leader?.name || "Unknown")}</div></div><div><div class="metric-label">Next deadline</div><div class="metric-value">GW${escapeHtml(next.id ?? "—")}</div><div class="small">${escapeHtml(formatDate(next.deadline_time))}</div></div></div><div class="grid two"><article class="panel"><div class="panel-head"><div><h2>Decision queue</h2><p>Facts to settle before the next transfer chat.</p></div></div><div class="action-list">${actions.map((action, index) => `<div class="action"><span class="action-index">0${index + 1}</span><div><strong>${escapeHtml(action.title)}</strong><p>${escapeHtml(action.text)}</p></div><span class="tag ${action.cls}">${escapeHtml(action.tag)}</span></div>`).join("")}</div></article><article class="panel"><div class="panel-head"><div><h2>Availability desk</h2><p>Official FPL statuses only.</p></div><button class="button-secondary" data-go="squad">Open squad</button></div>${flagged.length ? `<div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Chance</th><th>FPL note</th></tr></thead><tbody>${flagged.map((item) => `<tr><td class="player-name">${escapeHtml(item.name)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.chance ?? "—")}%</td><td class="small">${escapeHtml(item.news || "No detail")}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty"><strong>Availability clear</strong><span>No selected player is currently flagged by FPL.</span></div>'}</article></div><div class="grid equal"><article class="panel"><div class="panel-head"><div><h2>Fixture horizon</h2><p>Open the player pool to compare current form and FPL estimates.</p></div><button class="button-secondary" data-go="players">Player pool</button></div><p>The dashboard preserves the six-gameweek FPL fixture horizon in the snapshot and avoids turning fixture difficulty into a fake forecast.</p></article><article class="panel"><div class="panel-head"><div><h2>Wildcard lab</h2><p>Compare timing with clear limitations.</p></div><button class="button-secondary" data-go="wildcard">Compare timing</button></div><p>Save up to four draft squads for GW4–GW7 on this device only; Railway restarts do not erase them here. The lab calculates cost, squad size and availability risk, and displays FPL’s next-round estimate only.</p><p class="method">Future-gameweek projections are manager assumptions, not hidden model outputs.</p></article></div>`;
-  required<HTMLElement>("#overview").insertAdjacentHTML("beforeend", renderPrivateTeamPanel(data.private_team) + renderTeamDecisionDesk(data.team_decision, (team, keeper) => jerseySvg(team ?? undefined, keeper)));
+  required<HTMLElement>("#overview").insertAdjacentHTML("beforeend", renderPrivateTeamPanel(data.private_team, data.config?.team_id) + renderTeamDecisionDesk(data.team_decision, (team, keeper) => jerseySvg(team ?? undefined, keeper)));
+}
+
+let planCache: { key: string; result: PlanResult } | null = null;
+let planRequest = "";
+
+function safeLocalStorage(): Storage | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function planGameweek(): number | undefined {
+  return state.data?.lineup?.gameweek ?? state.data?.snapshot.events.next?.id;
+}
+
+function currentPlan(): PlannedTransfer[] {
+  const gameweek = planGameweek();
+  if (!state.data || gameweek === undefined) return [];
+  return loadPlan(safeLocalStorage(), gameweek, new Set((state.data.snapshot.squad_snapshot.picks ?? []).map((pick) => pick.element)));
+}
+
+function setPlan(plan: PlannedTransfer[]): void {
+  const gameweek = planGameweek();
+  if (gameweek === undefined) return;
+  savePlan(safeLocalStorage(), gameweek, plan);
+  renderSquad();
+}
+
+function planTransfer(out: number, incoming: number): string | null {
+  const result = addTransfer(currentPlan(), { out, in: incoming });
+  if (result.error) return result.error;
+  setPlan(result.plan);
+  activate("squad");
+  return null;
 }
 
 function renderSquad(): void {
@@ -321,8 +357,26 @@ function renderSquad(): void {
   const snapshot = data.snapshot;
   const picks = snapshot.squad_snapshot.picks ?? [];
   const target = required<HTMLElement>("#squad");
-  target.innerHTML = renderTacticsBoard(data.lineup, data.private_team)
-    + `<details class="panel lineup-list"><summary>Show this week's lineup as a list, with every reason</summary>${renderLineupHelper(data.lineup, data.team_decision?.players ?? [])}</details>`
+  const plan = currentPlan();
+  // The plan depends on the squad, prices and account capture, so cache it per data version too.
+  const key = `${planQuery(plan)}|${snapshot.generated_at_utc ?? ""}|${data.private_team?.captured_at_utc ?? ""}`;
+  let lineup = data.lineup;
+  let result: PlanResult | null = null;
+  if (plan.length) {
+    if (planCache?.key === key) {
+      result = planCache.result;
+      if (result.state === "ready") lineup = result.lineup as LineupData;
+    } else if (planRequest !== key) {
+      planRequest = key;
+      fetch(`/api/plan?transfers=${encodeURIComponent(planQuery(plan))}`)
+        .then(async (response) => (await response.json()) as PlanResult)
+        .catch((): PlanResult => ({ state: "invalid", reason: "The plan could not be checked. Is the dashboard server running?" }))
+        .then((answer) => { planCache = { key, result: answer }; planRequest = ""; if (planQuery(currentPlan()) === planQuery(plan)) renderSquad(); });
+    }
+  }
+  const names = new Map(data.catalog.players.map((player) => [player.id, player.web_name ?? `Player ${player.id}`]));
+  target.innerHTML = renderPlanStrip(plan, result, names) + renderTacticsBoard(lineup, data.private_team)
+    + `<details class="panel lineup-list"><summary>Show this week's lineup as a list, with every reason</summary>${renderLineupHelper(lineup, data.team_decision?.players ?? [])}</details>`
     + `<details class="panel saved-squad"><summary>Your saved squad from the public snapshot (last deadline)</summary>` + renderSquadFormation({
     picks,
     players: data.catalog.players,
@@ -333,7 +387,11 @@ function renderSquad(): void {
     bank: snapshot.squad_snapshot.bank,
   }) + "</details>";
   mountSquadFormation(target);
-  mountTacticsBoard(target, data.lineup, data.team_decision?.players ?? []);
+  mountTacticsBoard(target, lineup, data.team_decision?.players ?? []);
+  target.querySelectorAll<HTMLButtonElement>("[data-remove-out]").forEach((button) => {
+    button.onclick = () => setPlan(currentPlan().filter((move) => move.out !== Number(button.dataset.removeOut)));
+  });
+  target.querySelector<HTMLButtonElement>(".plan-clear")?.addEventListener("click", () => setPlan([]));
 }
 
 function renderWildcard(): void {
@@ -354,8 +412,9 @@ function renderRivals(): void {
   const rivals = state.data?.snapshot.rivals ?? [];
   const league = state.data?.snapshot.league;
   const count = (value: unknown) => (Array.isArray(value) ? value.length : typeof value === "number" ? value : null);
-  const rows = rivals.map((rival) => ({ rank: Number(rival.rank ?? 999), html: `<tr><td>${escapeHtml(rival.rank ?? "—")}</td><td class="player-name">${escapeHtml(rival.name || "Unknown")}</td><td>${escapeHtml(rival.points ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.shared) ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.user_only) ?? "—")}</td></tr>` }));
-  if (league?.rank != null) rows.push({ rank: Number(league.rank), html: `<tr class="you-row"><td>${escapeHtml(league.rank)}</td><td class="player-name"><span class="hand-underline">You</span></td><td>${escapeHtml(league.points ?? "—")}</td><td>—</td><td>—</td></tr>` });
+  const rankOf = (value: unknown) => { const rank = Number(value); return Number.isFinite(rank) ? rank : 9999; };
+  const rows = rivals.map((rival) => ({ rank: rankOf(rival.rank), html: `<tr><td>${escapeHtml(rival.rank ?? "—")}</td><td class="player-name">${escapeHtml(rival.name || "Unknown")}</td><td>${escapeHtml(rival.points ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.shared) ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.user_only) ?? "—")}</td></tr>` }));
+  if (league?.rank != null) rows.push({ rank: rankOf(league.rank), html: `<tr class="you-row"><td>${escapeHtml(league.rank)}</td><td class="player-name"><span class="hand-underline">You</span></td><td>${escapeHtml(league.points ?? "—")}</td><td>—</td><td>—</td></tr>` });
   rows.sort((a, b) => a.rank - b.rank);
   required<HTMLElement>("#rivals").innerHTML = `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
 }
@@ -455,6 +514,30 @@ async function refreshSnapshot(): Promise<void> {
   }
 }
 
+async function importAccount(): Promise<void> {
+  const box = document.querySelector<HTMLTextAreaElement>("#account-paste");
+  const note = document.querySelector<HTMLElement>("#account-import-status");
+  if (!box || !note) return;
+  const text = box.value.trim();
+  try {
+    JSON.parse(text);
+  } catch {
+    note.textContent = "That isn't the FPL data yet. Open the link, select all (Ctrl+A), copy, and paste the whole thing here.";
+    note.className = "import-status bad";
+    return;
+  }
+  note.textContent = "Importing…";
+  note.className = "import-status";
+  try {
+    const summary = await requestJson<PrivateTeamData>("/api/private-team", { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+    await loadDashboard();
+    status(`FPL account imported: ${summary.free_transfers ?? "?"} free transfers, ${money(summary.bank)} in the bank.`);
+  } catch (error) {
+    note.textContent = errorMessage(error);
+    note.className = "import-status bad";
+  }
+}
+
 async function loadDashboard(): Promise<void> {
   try {
     const data = await requestJson<DashboardData>("/api/dashboard");
@@ -466,13 +549,17 @@ async function loadDashboard(): Promise<void> {
   }
 }
 
-const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
+const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, planTransfer, kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
 deskTools = mountDeskTools(runtime);
 refreshDecisionStates = mountDecisionStates(() => state.data);
 
 document.addEventListener("click", (event: MouseEvent) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
+  if (target.closest("#account-import")) {
+    void importAccount();
+    return;
+  }
   const compare = target.closest<HTMLButtonElement>("[data-compare-player]");
   if (compare) {
     const playerId = Number(compare.dataset.comparePlayer);

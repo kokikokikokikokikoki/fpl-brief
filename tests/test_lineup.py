@@ -89,6 +89,14 @@ class LineupTests(unittest.TestCase):
         result = lineup.suggest(snapshot, catalog, None, FRESH, NOW)
         self.assertIn("2 fixtures in GW6", result["captain"]["flags"])
 
+    def test_captain_options_list_every_fixture_in_a_double(self):
+        snapshot, catalog = build()
+        snapshot["fixtures"]["events"]["6"].append({"team_h": 6, "team_a": 1})
+        result = lineup.suggest(snapshot, catalog, None, FRESH, NOW)
+        options = {row["id"]: row for row in result["captain_options"]}
+        self.assertEqual(len(options[8]["next_fixtures"]), 2)
+        self.assertLessEqual(len(result["captain_options"]), 3)
+
     def test_bench_has_backup_goalkeeper_first_then_estimate_order(self):
         snapshot, catalog = build()
         bench = lineup.suggest(snapshot, catalog, None, FRESH, NOW)["bench"]

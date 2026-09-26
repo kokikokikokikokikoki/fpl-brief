@@ -914,8 +914,16 @@ check(!s.m.has("fpl-brief:board:v1:gw6"), "reset clears the key");
         self.assertIn('ghost.setAttribute("aria-hidden", "true")', mount)
         self.assertIn('ghost.setAttribute("inert", "")', mount)
         self.assertIn("refocus(id)", mount)
-        self.assertEqual(mount.count("addEventListener("), mount.count("signal })"),
+        self.assertIn("window.clearInterval(timer)", mount, "the deadline clock must stop when the board unmounts")
+        self.assertEqual(mount.count("addEventListener(") - mount.count("signal.addEventListener("), mount.count("signal })"),
                          "every board listener must be removed when the board re-mounts")
+
+    def test_plan_cache_and_mount_ordering_guards(self):
+        app = Path("dashboard/app.ts").read_text(encoding="utf-8")
+        self.assertIn("${snapshot.generated_at_utc ?? \"\"}|${data.private_team?.captured_at_utc ?? \"\"}", app, "plan cache must follow data reloads")
+        board = Path("dashboard/tactics-board.ts").read_text(encoding="utf-8")
+        mount = board[board.index("export function mountTacticsBoard"):]
+        self.assertLess(mount.index("mounted?.abort()"), mount.index('data.state !== "ready") return'), "abort the old board before any early return")
 
     def test_board_markup_escapes_values_and_shows_refusals(self):
         self.run_board_script(r'''
@@ -928,3 +936,190 @@ for (const v of ["&lt;s&gt;x&lt;/s&gt;", "the public snapshot &lt;b&gt;", "Hint 
 check(!/<(s|b|i)>/.test(html), "unescaped markup");
 check(kits.jerseySvg("NEW").includes("clip-path") && kits.jerseySvg("ZZZ").includes("#9AA5A0") && kits.jerseySvg("MCI", true).includes("#C9F24B"), "kits: stripes, fallback, keeper");
 ''')
+
+
+class PrivateTeamImportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        local = Path(self.tmp.name)
+        for name, value in (("LOCAL", local), ("PRIVATE_TEAM", local / "private_team.json")):
+            patcher = patch.object(dashboard, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        picks = [{"element": pid, "position": index + 1, "selling_price": 50, "purchase_price": 50, "is_captain": index == 0, "is_vice_captain": index == 1}
+                 for index, pid in enumerate(range(101, 116))]
+        self.snapshot = {"generated_at_utc": datetime.now(timezone.utc).isoformat(), "squad_snapshot": {"picks": [{"element": p["element"]} for p in picks]},
+                         "events": {"next": {"deadline_time": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()}}}
+        self.my_team = {"picks": picks, "chips": [], "transfers": {"cost": 4, "status": "cost", "limit": 1, "made": 0, "bank": 3, "value": 1000}}
+        patcher = patch.object(dashboard, "load_config", return_value={"team_id": 42, "stale_after_hours": 8})
+        patcher.start(); self.addCleanup(patcher.stop)
+        patcher = patch.object(dashboard.Handler, "api_data", lambda handler: (self.snapshot, {"players": [], "teams": []}))
+        patcher.start(); self.addCleanup(patcher.stop)
+        self.server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def post(self, body, headers=None, raw=None):
+        host = f"127.0.0.1:{self.server.server_port}"
+        payload = raw if raw is not None else json.dumps(body).encode("utf-8")
+        base = {"Host": host, "Origin": f"http://{host}", "Content-Type": "application/json", "Content-Length": str(len(payload))}
+        base.update(headers or {})
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        try:
+            connection.putrequest("POST", "/api/private-team", skip_host=True, skip_accept_encoding=True)
+            for key, value in base.items():
+                if value is not None:
+                    connection.putheader(key, value)
+            connection.endheaders(payload)
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+    def saved(self):
+        return dashboard.PRIVATE_TEAM.exists()
+
+    def leftovers(self):
+        return [path.name for path in dashboard.LOCAL.iterdir() if path.suffix == ".tmp"]
+
+    def test_valid_paste_is_wrapped_validated_and_saved(self):
+        status, body = self.post(self.my_team)
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["state"], body["usable"], body["free_transfers"], body["bank"]), ("ready", True, 1, 3))
+        record = json.loads(dashboard.PRIVATE_TEAM.read_text(encoding="utf-8"))
+        self.assertEqual((record["team_id"], record["schema_version"]), (42, 1))
+        self.assertIn("pasted by the manager", record["source"])
+        self.assertNotIn("password", json.dumps(record).lower())
+        status, _ = self.post({"my_team": self.my_team})
+        self.assertEqual(status, 200, "a previously exported record wrapper is also accepted")
+        self.assertEqual(self.leftovers(), [])
+
+    def test_only_known_fpl_fields_are_saved(self):
+        sneaky = dict(self.my_team, password="hunter2", cookie="sessionid=abc")
+        sneaky["picks"] = [dict(pick, token="t0k") for pick in self.my_team["picks"]]
+        sneaky["transfers"] = dict(self.my_team["transfers"], secret="s")
+        sneaky["chips"] = [{"name": "bboost", "status_for_entry": "available", "played_by_entry": [], "start_event": 1, "stop_event": 19, "cookie": "c"}]
+        status, body = self.post(sneaky)
+        self.assertEqual(status, 200, body)
+        saved = dashboard.PRIVATE_TEAM.read_text(encoding="utf-8")
+        for leaked in ("hunter2", "sessionid", "t0k", '"secret"', '"cookie"', '"password"', '"token"'):
+            self.assertNotIn(leaked, saved)
+        self.assertIn('"selling_price"', saved)
+
+    def test_known_fields_keep_only_plain_values(self):
+        crafted = dict(self.my_team)
+        crafted["picks"] = [dict(pick, is_captain={"cookie": "x1"}, multiplier=["a"], element_type="y" * 500) for pick in self.my_team["picks"]]
+        crafted["transfers"] = dict(self.my_team["transfers"], status={"cookie": "x2"})
+        crafted["chips"] = [{"name": {"cookie": "x3"}, "status_for_entry": "available", "played_by_entry": [1, {"c": 1}], "start_event": 1, "stop_event": 19}]
+        crafted["picks_last_updated"] = {"cookie": "x4"}
+        status, body = self.post(crafted)
+        saved = dashboard.PRIVATE_TEAM.read_text(encoding="utf-8") if dashboard.PRIVATE_TEAM.exists() else ""
+        for leaked in ("x1", "x2", "x3", "x4", "yyyy", '"a"'):
+            self.assertNotIn(leaked, saved, (status, body))
+
+    def test_actions_refuse_cross_site_posts_on_loopback(self):
+        for path in ("/api/refresh", "/api/research", "/api/plans/compare"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+            try:
+                connection.putrequest("POST", path, skip_host=True)
+                connection.putheader("Host", f"127.0.0.1:{self.server.server_port}")
+                connection.putheader("Origin", "https://evil.example")
+                connection.putheader("Content-Length", "0")
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, 403, path)
+            finally:
+                connection.close()
+
+    def test_deeply_nested_json_is_a_clean_400(self):
+        status, body = self.post(None, raw=("[" * 20000 + "]" * 20000).encode())
+        self.assertEqual(status, 400, body)
+        self.assertFalse(self.saved())
+
+    def test_api_reads_refuse_foreign_host_names_on_loopback(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        try:
+            connection.putrequest("GET", "/api/workflow-status", skip_host=True)
+            connection.putheader("Host", f"evil.example:{self.server.server_port}")
+            connection.endheaders()
+            self.assertEqual(connection.getresponse().status, 403)
+        finally:
+            connection.close()
+        with urlopen(f"http://127.0.0.1:{self.server.server_port}/api/workflow-status") as response:
+            self.assertEqual(response.status, 200)
+
+    def test_cross_site_and_rebinding_requests_are_refused(self):
+        for headers in ({"Origin": "https://evil.example"}, {"Origin": None, "Referer": "https://evil.example/x"}, {"Origin": None},
+                        {"Host": f"evil.example:{self.server.server_port}", "Origin": f"http://evil.example:{self.server.server_port}"}):
+            status, body = self.post(self.my_team, headers)
+            self.assertEqual(status, 403, headers)
+        self.assertFalse(self.saved())
+
+    def test_off_loopback_binding_is_refused(self):
+        with patch.object(dashboard, "LOOPBACK_HOSTS", {"not-this-host"}):
+            status, _ = self.post(self.my_team)
+        self.assertEqual(status, 403)
+        self.assertFalse(self.saved())
+
+    def test_bad_pastes_are_rejected_without_writing(self):
+        wrong_team = dict(self.my_team, picks=[dict(p, element=p["element"] + 100) for p in self.my_team["picks"]])
+        cases = [
+            ({}, {"Content-Type": "text/plain"}, None, 415),
+            (None, {}, b"{not json", 400),
+            ([], {}, None, 400),
+            ({"picks": []}, {}, None, 400),
+            (wrong_team, {}, None, 422),
+            (dict(self.my_team, transfers={"bank": -1}), {}, None, 422),
+            (None, {}, b"x" * (dashboard.MAX_IMPORT_BYTES + 1), 413),
+        ]
+        for body, headers, raw, expected in cases:
+            status, reply = self.post(body, headers, raw)
+            self.assertEqual(status, expected, (body if raw is None else raw[:20], reply))
+            self.assertIn("error", reply)
+        self.assertFalse(self.saved())
+        self.assertEqual(self.leftovers(), [])
+
+
+class TransferPlanUiTests(unittest.TestCase):
+    def test_plan_storage_strip_and_import_section(self):
+        script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const ts = require("./dashboard/node_modules/typescript");
+const load = (file) => { const context = { exports: {}, JSON, Number, Set, Map }; vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context); return context.exports; };
+const plan = load("dashboard/transfer-plan.ts");
+const desk = load("dashboard/team-decision-desk.ts");
+const check = (cond, msg) => { if (!cond) throw new Error(msg); };
+const store = () => { const m = new Map(); return { getItem: (k) => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, v), removeItem: (k) => m.delete(k), m }; };
+const owned = new Set([1, 2, 3, 4]);
+const s = store();
+let r = plan.addTransfer([], { out: 1, in: 10 });
+r = plan.addTransfer(r.plan, { out: 2, in: 11 });
+r = plan.addTransfer(r.plan, { out: 1, in: 12 });
+check(r.plan.length === 2 && r.plan.some((t) => t.out === 1 && t.in === 12), "same outgoing player is replaced");
+r = plan.addTransfer(r.plan, { out: 3, in: 13 });
+const full = plan.addTransfer(r.plan, { out: 4, in: 14 });
+check(full.error && full.plan.length === 3, "plan capped at three");
+plan.savePlan(s, 6, r.plan);
+check(s.m.has("fpl-brief:plan:v1:gw6"), "namespaced key");
+check(plan.loadPlan(s, 6, owned).length === 3, "round trip");
+check(plan.planQuery(r.plan) === "2:11,1:12,3:13", "query " + plan.planQuery(r.plan));
+for (const raw of ["{", "[1]", JSON.stringify([{ out: 9, in: 10 }]), JSON.stringify([{ out: 1, in: 2 }]), JSON.stringify([{ out: 1, in: 10 }, { out: 1, in: 11 }]), JSON.stringify([1, 2, 3, 4].map((o) => ({ out: o, in: o + 20 })))]) {
+  s.setItem("fpl-brief:plan:v1:gw6", raw); check(plan.loadPlan(s, 6, owned).length === 0, "rejects " + raw);
+}
+check(plan.loadPlan({ getItem() { throw new Error("x"); } }, 6, owned).length === 0, "throwing storage");
+plan.savePlan({ setItem() { throw new Error("x"); }, removeItem() { throw new Error("x"); } }, 6, r.plan);
+plan.savePlan(s, 6, []); check(!s.m.has("fpl-brief:plan:v1:gw6"), "empty plan clears key");
+const names = new Map([[1, "<b>Out</b>"], [10, "In&Co"]]);
+const invalid = plan.renderPlanStrip([{ out: 1, in: 10 }], { state: "invalid", reason: "<i>no</i>" }, names);
+check(invalid.includes("&lt;b&gt;Out&lt;/b&gt;") && invalid.includes("In&amp;Co") && invalid.includes("&lt;i&gt;no&lt;/i&gt;") && !/<(b|i)>/.test(invalid), "strip escaping");
+const ready = plan.renderPlanStrip([{ out: 1, in: 10 }, { out: 2, in: 11 }], { state: "ready", lineup: {}, summary: { transfers: [{}, {}], budget_left: 7, free_transfers: 1, paid_transfers: 1, hit_points: 4, xi_delta: 3.5, net_delta: -0.5, method: "m" } }, names);
+check(ready.includes("-0.5") && ready.includes("1 of 1 free transfers") && ready.includes("hit −4") && ready.includes("£0.7m left") && ready.includes('data-remove-out="1"'), "ready summary");
+check(plan.renderPlanStrip([], null, names) === "", "no plan, no strip");
+const missing = desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "m", captured_at_utc: null, age_hours: null }, 6572775);
+check(missing.includes("https://fantasy.premierleague.com/api/my-team/6572775/") && missing.includes('rel="noopener noreferrer"') && missing.includes("never your password") && missing.includes("<details class=\"account-import\" open"), "import section on missing");
+check(!desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "m" }, "6572775/../x").includes("my-team/6572775/../x"), "non-integer team id is not linked");
+'''
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)

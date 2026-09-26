@@ -40,7 +40,25 @@ def _fixture_counts(snapshot, gameweek):
     return counts
 
 
-def _player_row(pick, player, teams, fixture_counts, gameweek):
+def _upcoming(snapshot, teams, gameweek, horizon=3):
+    """Next fixtures per team from the saved horizon: opponent, venue and FPL's published difficulty."""
+    events = ((snapshot.get("fixtures") or {}).get("events") or {})
+    result = {}
+    for gw in range(gameweek, gameweek + 6):
+        fixtures = events.get(str(gw), events.get(gw)) or []
+        for fixture in fixtures if isinstance(fixtures, list) else []:
+            if not isinstance(fixture, dict):
+                continue
+            for side, other, venue, difficulty in (("team_h", "team_a", "H", "team_h_difficulty"), ("team_a", "team_h", "A", "team_a_difficulty")):
+                fdr = fixture.get(difficulty)
+                result.setdefault(fixture.get(side), []).append({
+                    "gameweek": gw, "opponent": (teams.get(fixture.get(other)) or {}).get("short_name") or "?", "venue": venue,
+                    "difficulty": fdr if isinstance(fdr, int) and not isinstance(fdr, bool) and 1 <= fdr <= 5 else None,
+                })
+    return {team: rows[:horizon] for team, rows in result.items()}
+
+
+def _player_row(pick, player, teams, fixture_counts, gameweek, upcoming=None):
     chance = player.get("chance_of_playing_next_round")
     chance = chance if isinstance(chance, int) and not isinstance(chance, bool) else None
     status = player.get("status")
@@ -65,7 +83,7 @@ def _player_row(pick, player, teams, fixture_counts, gameweek):
         "role": ROLE.get(player.get("element_type")), "element_type": player.get("element_type"),
         "estimate": _estimate(player.get("ep_next")), "chance": chance, "fixtures": fixtures,
         "eligible": not blockers, "fully_available": not blockers and not doubts,
-        "flags": flags, "blockers": blockers,
+        "flags": flags, "blockers": blockers, "next_fixtures": (upcoming or {}).get(player.get("team"), []),
     }
 
 
@@ -118,7 +136,8 @@ def suggest(snapshot, catalog, private=None, freshness=None, now=None):
     if len(picks) != 15 or any(player is None for player in matched):
         return _refuse("The saved squad is incomplete or has players missing from the FPL catalog.", gameweek)
     counts = _fixture_counts(snapshot, gameweek)
-    rows = [_player_row(pick, player, teams, counts, gameweek) for pick, player in zip(picks, matched)]
+    upcoming = _upcoming(snapshot, teams, gameweek)
+    rows = [_player_row(pick, player, teams, counts, gameweek, upcoming) for pick, player in zip(picks, matched)]
     missing = [row["name"] for row in rows if row["estimate"] is None]
     if missing:
         return _refuse("FPL's next-round estimate is missing for " + ", ".join(str(name) for name in missing) + ".", gameweek)
@@ -187,6 +206,10 @@ def suggest(snapshot, catalog, private=None, freshness=None, now=None):
         "formation": formation, "xi_estimate_total": total, "lines": lines, "bench": bench,
         "captain": {"id": captain["id"], "name": captain["name"], "estimate": captain["estimate"], "flags": captain["flags"]},
         "vice": {"id": vice["id"], "name": vice["name"], "estimate": vice["estimate"], "flags": vice["flags"]},
+        "captain_options": [
+            {"id": row["id"], "name": row["name"], "team": row["team"], "estimate": row["estimate"], "fixtures": row["fixtures"],
+             "flags": row["flags"], "next_fixtures": row["next_fixtures"][:max(1, row["fixtures"])]}
+            for row in captain_order if row["eligible"] and row["fully_available"]][:3],
         "changes": changes, "bench_boost": bench_boost,
         "method": "Highest total FPL next-round estimate (ep_next) across legal formations, after removing players FPL lists as out or without a fixture. FPL's estimate, not a forecast by this app.",
     }

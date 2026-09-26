@@ -48,7 +48,7 @@ class PrivateTeamTests(unittest.TestCase):
     def test_missing_file_is_not_usable_and_explains_import(self):
         result = self.load()
         self.assertEqual((result["state"], result["usable"]), ("missing", False))
-        self.assertIn("local/private_team.json", result["message"])
+        self.assertIn("Update from FPL", result["message"])
         self.assertNotIn("bank", result)
 
     def test_ready_record_exposes_transfers_prices_and_chips(self):

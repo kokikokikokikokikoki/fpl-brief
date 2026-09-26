@@ -88,21 +88,49 @@ ignored by Git, so a fresh checkout always needs this build step.
 
 ### Private FPL account data (local only)
 
-The public FPL API does not include selling prices, free transfers, bank or your
-chip status. To use them, sign in to FPL yourself in the Claude browser pane and
-ask Claude to capture your team data. Claude reads `/api/my-team/{team_id}/`
-read-only from that session and saves it to `local/private_team.json`. Claude
-never enters credentials, never makes FPL changes, and never stores a token.
+The public FPL API has no selling prices, free transfers, bank or chip status.
+To add them yourself (about a minute, no Claude needed):
 
-- `local/` is gitignored and not included in the Docker image, so this data is
-  never committed or deployed.
-- The dashboard shows the data in a **Your FPL account** panel and uses it for
-  Candidate Lens affordability, which uses the selling price plus bank.
-- The data is used only when it matches your configured team and the public
-  squad, and only while it is fresh: newer than `stale_after_hours`, with no
-  deadline passed since capture. Otherwise the panel explains why, and Candidate
-  Lens stays blocked rather than guessing.
-- Recapture after any transfer or deadline.
+1. In **Overview → Your FPL account → Update from FPL**, open the link. It goes to
+   `fantasy.premierleague.com/api/my-team/<your team id>/` in your normal browser,
+   where you are already signed in to FPL.
+2. Select all (Ctrl+A), copy, and paste it into the box, then click **Import**.
+
+The server wraps and validates the data and saves `local/private_team.json`. That
+folder is gitignored and never goes into the Docker image. Only the team data is
+read, never a password or token.
+
+The import endpoint only accepts requests that are:
+- sent to a loopback-bound server;
+- from this dashboard's own origin (Origin/Referer, with the Host checked to
+  block DNS rebinding);
+- `application/json`, 64 KB at most.
+
+Account data is used while it is fresh: less than 24 hours old
+(`private_stale_after_hours`), with no deadline passed since capture, and a
+squad that matches the public snapshot. Otherwise the panel explains why.
+Claude can also capture it for you from its browser pane.
+
+### Weekly workflow
+
+1. **Refresh FPL data** (top right). Then refresh your account data as above.
+2. **My squad** shows the board: the suggested XI, bench order, captain and the
+   changes from your saved lineup. It also has:
+   - a captain shortlist with each player's next fixture;
+   - a fixture strip (next three opponents, coloured by FPL difficulty) when you
+     pick up a shirt.
+   Drag shirts to try your own XI.
+3. **Candidate lens**: choose a player to replace, then click **Try on board** on
+   a candidate. My squad then shows a **Planned transfers** strip:
+   - up to three moves;
+   - checked against position, availability, the three-per-club limit and your
+     real budget (selling prices plus bank);
+   - the best XI and captain with those players;
+   - the next-gameweek FPL estimate change after any −4 hits.
+   Plans are saved in this browser only.
+4. For team news and judgement (press conferences, rotation), ask Jev (Claude)
+   in Claude Code.
+5. Make the real changes in the FPL app; this dashboard never changes your team.
 
 ### Container image (Railway-compatible)
 

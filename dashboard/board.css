@@ -100,7 +100,7 @@ main { min-width: 0; width: 100%; max-width: 1560px; padding: 24px clamp(16px, 3
 .pill { border: 0; background: var(--enamel-shade); color: var(--ink); }
 
 /* Tables */
-.table-wrap { overflow-x: auto; margin: 0 -6px; padding: 0 6px; }
+.table-wrap { position: relative; overflow-x: auto; margin: 0 -6px; padding: 0 6px; }
 table { width: 100%; border-collapse: collapse; }
 caption { padding: 0 0 10px; color: var(--ink-soft); font-size: 14px; text-align: left; }
 th { color: var(--ink-soft); font-size: 13px; font-weight: 700; letter-spacing: .05em; text-align: left; text-transform: uppercase; }

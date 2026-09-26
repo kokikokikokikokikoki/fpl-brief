@@ -87,11 +87,24 @@ function money(tenths: unknown): string {
   return typeof tenths === "number" && Number.isFinite(tenths) ? `£${(tenths / 10).toFixed(1)}m` : "—";
 }
 
-export function renderPrivateTeamPanel(data: DashboardData["private_team"]): string {
+function importSection(teamId: number | undefined, open: boolean): string {
+  const link = typeof teamId === "number" && Number.isInteger(teamId)
+    ? `<a href="https://fantasy.premierleague.com/api/my-team/${teamId}/" target="_blank" rel="noopener noreferrer">your FPL team data</a>`
+    : "your FPL team data (fantasy.premierleague.com/api/my-team/YOUR_TEAM_ID/)";
+  return `<details class="account-import"${open ? " open" : ""}><summary>Update from FPL (about a minute)</summary>
+    <ol><li>Open ${link} in a browser where you're signed in to FPL.</li><li>Select everything (Ctrl+A), copy it (Ctrl+C) and paste it below.</li></ol>
+    <label for="account-paste" class="visually-hidden">Paste your FPL team data</label>
+    <textarea id="account-paste" rows="4" spellcheck="false" placeholder='{"picks": [...], "chips": [...], "transfers": {...}}'></textarea>
+    <div class="import-row"><button id="account-import" class="button-primary" type="button">Import</button><p id="account-import-status" class="import-status" role="status" aria-live="polite"></p></div>
+    <p class="import-fine">Only the team data is read: never your password. It is saved on this computer only and is never committed or deployed.</p>
+  </details>`;
+}
+
+export function renderPrivateTeamPanel(data: DashboardData["private_team"], teamId?: number): string {
   const head = `<div class="panel-head"><div><h2 id="private-team-title">Your FPL account</h2><p>Read-only capture from your own signed-in FPL session. Kept on this machine; never deployed. Not transfer advice.</p></div></div>`;
   if (!data) return "";
   if (data.state !== "stale" && data.state !== "ready") {
-    return `<section class="panel private-team" aria-labelledby="private-team-title">${head}<p class="evidence-warning" role="status">${esc(data.message)}</p></section>`;
+    return `<section class="panel private-team" aria-labelledby="private-team-title">${head}<p class="evidence-warning" role="status">${esc(data.message)}</p>${importSection(teamId, true)}</section>`;
   }
   const notice = data.state === "stale"
     ? `<p class="evidence-warning" role="status">${esc(data.message)} Captured ${esc(stamp(data.captured_at_utc))}.</p>`
@@ -104,6 +117,7 @@ export function renderPrivateTeamPanel(data: DashboardData["private_team"]): str
   return `<section class="panel private-team" aria-labelledby="private-team-title">${head}${notice}
     <dl class="private-team-facts"><div><dt>Free transfers</dt><dd>${free}</dd></div><div><dt>Transfers made</dt><dd>${esc(data.transfers_made)}</dd></div><div><dt>Bank</dt><dd>${esc(money(data.bank))}</dd></div><div><dt>Each extra transfer</dt><dd>−${esc(data.hit_cost)} pts</dd></div><div><dt>Team value</dt><dd>${esc(money(data.team_value))}</dd></div></dl>
     <div class="table-wrap"><table><caption>Chip status as reported by your FPL account.</caption><thead><tr><th scope="col">Chip</th><th scope="col">Status</th><th scope="col">Played</th><th scope="col">Window</th></tr></thead><tbody>${chips}</tbody></table></div>
+    ${importSection(teamId, data.state === "stale")}
   </section>`;
 }
 

@@ -7,8 +7,10 @@ import mimetypes
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +20,7 @@ from fpl_brief.config import load as load_config
 from fpl_brief.decision import assess, snapshot_freshness
 from fpl_brief.candidates import lens
 from fpl_brief import lineup as lineup_helper
+from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
 from fpl_brief.research import evidence_status, load_packet
 from fpl_brief.storage import read_json
@@ -31,6 +34,7 @@ STATIC_DIST = STATIC / "dist"
 LOCAL = ROOT / "local"
 PRIVATE_TEAM = LOCAL / "private_team.json"
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+MAX_IMPORT_BYTES = 64 * 1024
 JOBS = {}
 MAX_PLANS = 4
 MISSING_BUNDLE_MESSAGE = (
@@ -434,7 +438,40 @@ def evaluate_plan(plan, catalog):
             "risk_count": len(risks), "risks": [{"id": p["id"], "name": p["web_name"], "status": p.get("status"), "chance": p.get("chance_of_playing_next_round")} for p in risks]}
 
 
+# Only the fields FPL's my-team data contains are kept from a paste; anything else is dropped.
+IMPORT_FIELDS = {
+    "pick": ("element", "position", "multiplier", "is_captain", "is_vice_captain", "element_type", "selling_price", "purchase_price"),
+    "chip": ("id", "status_for_entry", "played_by_entry", "name", "number", "start_event", "stop_event", "chip_type", "is_pending"),
+    "transfers": ("cost", "status", "limit", "made", "bank", "value"),
+}
+
+
+def _plain(value):
+    """Keep only plain JSON values FPL uses: numbers, booleans, null, short strings, or integer lists."""
+    if value is None or isinstance(value, bool) or (isinstance(value, (int, float)) and math.isfinite(value)):
+        return True
+    if isinstance(value, str):
+        return len(value) <= 64
+    return isinstance(value, list) and len(value) <= 64 and all(isinstance(v, int) and not isinstance(v, bool) for v in value)
+
+
+def whitelist_my_team(raw):
+    """Rebuild the pasted my-team object from known fields and plain values only (never stores stray data such as cookies)."""
+    keep = lambda item, fields: {key: item[key] for key in fields if key in item and _plain(item[key])} if isinstance(item, dict) else item
+    result = {
+        "picks": [keep(pick, IMPORT_FIELDS["pick"]) for pick in raw["picks"]] if isinstance(raw["picks"], list) else raw["picks"],
+        "chips": [keep(chip, IMPORT_FIELDS["chip"]) for chip in raw["chips"]] if isinstance(raw["chips"], list) else raw["chips"],
+        "transfers": keep(raw["transfers"], IMPORT_FIELDS["transfers"]),
+    }
+    if isinstance(raw.get("picks_last_updated"), str):
+        result["picks_last_updated"] = raw["picks_last_updated"][:40]
+    return result
+
+
 class Handler(SimpleHTTPRequestHandler):
+    # A stalled or short upload must not hold a server thread forever.
+    timeout = 15
+
     def log_message(self, format, *args):
         return
 
@@ -466,12 +503,69 @@ class Handler(SimpleHTTPRequestHandler):
             return private_team.disabled()
         return private_team.load(PRIVATE_TEAM, config, snapshot)
 
+    def same_origin_local(self):
+        """Accept only a page served by this loopback server (blocks cross-site and DNS-rebinding posts)."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not self.host_is_local():
+            return False
+        origin = self.headers.get("Origin") or ""
+        referer = self.headers.get("Referer") or ""
+        expected = f"http://{host}"
+        return origin == expected or (not origin and (referer == expected or referer.startswith(expected + "/")))
+
+    def import_private_team(self):
+        """Save FPL's /api/my-team/ JSON that the manager copied from their own signed-in browser."""
+        if self.server.server_address[0] not in LOOPBACK_HOSTS or not self.same_origin_local():
+            return self.send_json({"error": "Account import only works from this dashboard on this machine."}, HTTPStatus.FORBIDDEN)
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self.send_json({"error": "Paste the JSON text from FPL."}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = -1
+        if length <= 0 or length > MAX_IMPORT_BYTES:
+            return self.send_json({"error": "That paste is empty or too large to be FPL team data."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        try:
+            my_team = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+            return self.send_json({"error": "That isn't valid JSON. Copy the whole page from the FPL link."}, HTTPStatus.BAD_REQUEST)
+        if isinstance(my_team, dict) and isinstance(my_team.get("my_team"), dict):
+            my_team = my_team["my_team"]
+        if not isinstance(my_team, dict) or not {"picks", "chips", "transfers"} <= set(my_team):
+            return self.send_json({"error": "That doesn't look like FPL's my-team data (picks, chips and transfers are missing)."}, HTTPStatus.BAD_REQUEST)
+        my_team = whitelist_my_team(my_team)
+        config = load_config()
+        snapshot, _ = self.api_data()
+        record = {"schema_version": private_team.SCHEMA_VERSION, "source": "fpl-api my-team (pasted by the manager from their own browser)",
+                  "team_id": config.get("team_id"), "captured_at_utc": datetime.now(timezone.utc).isoformat(), "my_team": my_team}
+        LOCAL.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=LOCAL, suffix=".tmp")
+        try:
+            with handle:
+                json.dump(record, handle, indent=2)
+            summary = private_team.load(handle.name, config, snapshot or {})
+            if summary["state"] not in ("ready", "stale"):
+                return self.send_json({"error": summary["message"]}, HTTPStatus.UNPROCESSABLE_ENTITY)
+            os.replace(handle.name, PRIVATE_TEAM)
+        finally:
+            if os.path.exists(handle.name):
+                os.remove(handle.name)
+        return self.send_json(private_team.load(PRIVATE_TEAM, config, snapshot or {}))
+
     def api_data(self):
         return read_json(ROOT / "data" / "latest.json", default=None), read_json(ROOT / "data" / "catalog.json", default={"players": [], "teams": []})
+
+    def host_is_local(self):
+        host = (self.headers.get("Host") or "").strip().lower()
+        hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
+        return hostname in {"127.0.0.1", "localhost", "[::1]"}
 
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        # On a loopback-bound server, refuse API reads addressed to any other hostname (DNS rebinding).
+        if path.startswith("/api/") and self.server.server_address[0] in LOOPBACK_HOSTS and not self.host_is_local():
+            return self.send_json({"error": "This dashboard only answers on localhost."}, HTTPStatus.FORBIDDEN)
         snapshot, catalog = self.api_data()
         if path == "/api/dashboard":
             if not snapshot:
@@ -506,6 +600,15 @@ class Handler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError) as error:
                 return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
 
+        if path == "/api/plan":
+            config = load_config()
+            freshness = snapshot_freshness(snapshot or {}, config.get("stale_after_hours", 8))
+            try:
+                pairs = transfer_plan.parse_transfers(parse_qs(parsed.query).get("transfers", [""])[0])
+            except ValueError as error:
+                return self.send_json({"state": "invalid", "reason": str(error)}, HTTPStatus.BAD_REQUEST)
+            result = transfer_plan.build(snapshot or {}, catalog, self.private_data(config, snapshot or {}), freshness, pairs)
+            return self.send_json(result, HTTPStatus.OK if result["state"] == "ready" else HTTPStatus.UNPROCESSABLE_ENTITY)
         if path.startswith("/api/players/"):
             try:
                 player_id = int(path.rsplit("/", 1)[1])
@@ -523,6 +626,9 @@ class Handler(SimpleHTTPRequestHandler):
         return self.serve_static(path)
 
     def do_POST(self):
+        # On this machine, only this dashboard's own pages may trigger actions (blocks cross-site and DNS-rebinding posts).
+        if self.server.server_address[0] in LOOPBACK_HOSTS and self.path in ("/api/research", "/api/refresh", "/api/plans/compare") and not self.same_origin_local():
+            return self.send_json({"error": "Actions only work from this dashboard on this machine."}, HTTPStatus.FORBIDDEN)
         if self.path == "/api/research":
             job_id = uuid.uuid4().hex[:10]
             JOBS[job_id] = {"id": job_id, "status": "running", "message": "Collecting fixed official research…"}
@@ -545,6 +651,8 @@ class Handler(SimpleHTTPRequestHandler):
                     JOBS[job_id] = {"id": job_id, "status": "failed", "message": str(error)}
             threading.Thread(target=refresh, daemon=True).start()
             return self.send_json(JOBS[job_id], HTTPStatus.ACCEPTED)
+        if self.path == "/api/private-team":
+            return self.import_private_team()
         if self.path == "/api/plans/compare":
             try:
                 payload = self.body()
