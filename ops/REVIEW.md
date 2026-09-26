@@ -835,3 +835,32 @@ Push to `main` is allowed. Render auto-deploys on the push, and `REQUIRE_PASSWOR
 The Overseer then sets `DASHBOARD_PASSWORD` (16 or more random characters) in Render → Environment; Claude never enters it.
 
 Verify after deploy that `/` returns `401` without credentials and `/healthz` returns `200`. The Overseer confirms sign-in in their browser.
+
+## Health probe fix — review
+
+**Date:** 2026-09-26
+**Reviewer:** independent security reviewer subagent (Claude Opus 5.5). Did not implement the change.
+**Scope:** uncommitted `git diff` on top of `1b89488`: `Handler.health()`, `do_HEAD` for `/healthz`, `HEALTH_LOGGED`, and one test assertion.
+**Verdict:** PASS
+
+### Findings
+
+- **No data exposure and no password bypass.** `do_HEAD` (`dashboard.py:661-668`) opens only when `urlparse(self.path).path == "/healthz"`, the same exact-match test `gate()` uses for GET (`dashboard.py:601-604`). HEAD always sends status plus `Content-Length: 0` and no body. The HEAD and GET matrices match exactly on a throwaway `127.0.0.1` server (`PORT=18777`, `DASHBOARD_PASSWORD` set, `REQUIRE_PASSWORD=1`):
+  - **Returns 200** (HEAD with an empty body, GET with `ok`): `/healthz`, `/healthz?x`, `/healthz?x=/api/dashboard`, `/healthz#x`, `/healthz;x`, `//healthz`, and the absolute form `http://evil/healthz`. Each of these is answered only by the health stub.
+  - **Returns 405 for HEAD and 401 for GET:** `/healthz/`, `/healthz/../api/dashboard`, `/./healthz`, `/%68ealthz`, `/healthz%00`, `/HEALTHZ`, `//evil/healthz`, `/api/dashboard?/healthz`, `*`, `/`, `/config.json`, and `/api/dashboard`.
+- **Logging is safe and bounded.** It prints only the fixed method string (`GET` or `HEAD`) and the status code. It never includes the path, query, headers, client address or password; the probe password never appeared in stdout. After 5 lines it stops for the life of the process.
+  - Info: `HEALTH_LOGGED += 1` runs outside `AUTH_LOCK`, so simultaneous probes can overshoot 5 by a few lines. This is harmless.
+  - Info: any caller can use up the 5 slots, including scanners or a manual curl. The absence of lines therefore means "no /healthz requests reached this process", not "Render never probed".
+- **No regressions.** Other HEAD requests still return 405. GET `/healthz` behaviour is unchanged and still runs through `gate()` first. `python -m unittest discover -s tests` passed 153 tests. `git diff --check` is clean (only CRLF notices).
+- **Stuck deploy: nothing in the code explains it.** Every request shape answered `200 ok` immediately:
+  - HTTP/1.0, or HTTP/1.1 with or without `Connection: close`
+  - no `Host` header, or a foreign `Host` plus `X-Forwarded-For`
+  - a keep-alive request (the server replies HTTP/1.0 and closes the connection, taking 0.0 s)
+
+  `gate()` returns before reading the environment or the rate-limit tables for `/healthz`. `Handler.timeout = 15` only affects idle sockets. `index.html` exists in the image (`Dockerfile` copies `dist/` to `/app/dashboard/dist`, matching `STATIC_DIST`). `PORT` is bound on `0.0.0.0` (IPv4 only).
+- **Hypothesis: the running service's effective health-check path may still be `/`, not `/healthz`.** `829e7e5` had `healthCheckPath: /`. A commit auto-deploy may not apply Blueprint changes if the Blueprint sync did not run or is waiting on the new `sync: false` variable. If the old path is still in effect:
+  - `GET /` now returns 401 when the password is set, or 503 when it is unset.
+  - Render would then never mark the instance healthy.
+  - `log_message` is silenced (`dashboard.py:506-507`), so these failing probes leave no trace in the logs.
+
+  This diff tests the hypothesis. If no `health probe ... /healthz` lines appear after deploy, Render is not probing `/healthz`. Check Render → Settings → Health Check Path and the Blueprint sync status. If the lines appear with `-> 200` and the deploy still hangs, the cause is on Render's side, not in this code.

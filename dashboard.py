@@ -47,6 +47,7 @@ AUTH_FAILURES = {}
 # Across all clients: caps total guessing even if per-client identity is evaded (may briefly lock everyone out).
 AUTH_GLOBAL_MAX_FAILURES = 100
 AUTH_GLOBAL_FAILURES = []
+HEALTH_LOGGED = 0
 AUTH_LOCK = threading.Lock()
 
 
@@ -642,7 +643,24 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
         return False
 
+    def health(self, method):
+        """Answer health probes (GET or HEAD) without data; log the first few so hosting issues are diagnosable."""
+        global HEALTH_LOGGED
+        ready = (STATIC_DIST / "index.html").is_file()
+        status = HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE
+        if HEALTH_LOGGED < 5:
+            HEALTH_LOGGED += 1
+            print(f"health probe {method} /healthz -> {int(status)}", flush=True)
+        if method == "HEAD":
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        return self.send_text("ok\n" if ready else "frontend bundle missing\n", status)
+
     def do_HEAD(self):
+        if urlparse(self.path).path == "/healthz":
+            return self.health("HEAD")
         # Never fall back to the base class, which would expose files from the working directory.
         self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
         self.send_header("Allow", "GET, POST")
@@ -655,8 +673,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.gate(path):
             return
         if path == "/healthz":
-            ready = (STATIC_DIST / "index.html").is_file()
-            return self.send_text("ok\n" if ready else "frontend bundle missing\n", HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE)
+            return self.health("GET")
         # On a loopback-bound server, refuse API reads addressed to any other hostname (DNS rebinding).
         if path.startswith("/api/") and self.server.server_address[0] in LOOPBACK_HOSTS and not self.host_is_local():
             return self.send_json({"error": "This dashboard only answers on localhost."}, HTTPStatus.FORBIDDEN)

@@ -1180,6 +1180,7 @@ class PasswordGateTests(unittest.TestCase):
             self.assertIn(status, (200, 503))
             self.assertIn(body.strip(), ("ok", "frontend bundle missing"))
             self.assertEqual(self.request("HEAD", "/config.json")[0], 405)
+            self.assertEqual(self.request("HEAD", "/healthz")[0], 200)
 
     def test_fails_closed_when_required_but_unset(self):
         with patch.dict(os.environ, {"REQUIRE_PASSWORD": "1"}):

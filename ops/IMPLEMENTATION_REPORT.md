@@ -805,3 +805,9 @@ The site is public with no password, per the Overseer's decision. Auto-deploy ru
   - Assets are `private` behind the password.
   - Existing tests are updated for the global table.
 - **Results.** 153 Python tests, Node tests, py_compile and `git diff --check` all pass.
+
+### Release note — password gate on Render (2026-09-26)
+
+- **First deploy of `1b89488` failed.** Render reported "Timed out after waiting for internal health check … fpl-brief.onrender.com:10000/healthz". Its automatic retry at 11:58 went live, with no code change.
+- **Verified externally at 11:59:** `/`, `/api/dashboard` and assets return **401**; `/healthz` returns **200** with no data.
+- **Follow-up hedge (reviewed PASS, "Health probe fix — review" in ops/REVIEW.md).** `Handler.health()` answers GET and HEAD `/healthz`, and the first 5 probes print "health probe <METHOD> /healthz -> <status>" (method and status only) so future hosting failures are diagnosable. Test: HEAD `/healthz` returns 200. 153 Python tests pass.
