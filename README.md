@@ -146,6 +146,13 @@ docker build -t fpl-brief:local .
 docker run --rm -e PORT=8080 -p 127.0.0.1:8080:8080 fpl-brief:local
 ```
 
+**Railway (deployed from GitHub).** `railway.json` selects the Dockerfile builder,
+a `/` healthcheck (this passes only when the built frontend is in the image) and
+restart-on-failure. Railway builds on every push to `main`, including the
+scheduled digest commits, so the public site picks up fresh FPL data
+automatically. The site is public and has no password (Overseer decision
+2026-09-26). Private account features are local-only by design.
+
 Server-side `data/` is disposable: a restart returns to the snapshot baked into
 the image, so use **Refresh FPL data** after a redeploy. Pushing, creating a
 Railway service, or deploying still requires an approved task and an explicit
