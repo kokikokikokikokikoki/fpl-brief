@@ -1,6 +1,7 @@
 # Render Blueprint: New → Blueprint → select this repo → Apply.
-# Public, read-only FPL dashboard (Overseer decision 2026-09-26). No secrets or env vars are needed:
-# Render injects PORT and dashboard.py binds 0.0.0.0 when PORT is set.
+# Read-only FPL dashboard behind a password (Overseer decision 2026-09-26). Render injects PORT and
+# dashboard.py binds 0.0.0.0 when PORT is set. Set DASHBOARD_PASSWORD yourself in Render → Environment;
+# with REQUIRE_PASSWORD=1 the site stays locked (503) until it is set.
 services:
   - type: web
     name: fpl-brief
@@ -10,4 +11,9 @@ services:
     plan: free
     branch: main
     autoDeployTrigger: commit
-    healthCheckPath: /
+    healthCheckPath: /healthz
+    envVars:
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: REQUIRE_PASSWORD
+        value: "1"

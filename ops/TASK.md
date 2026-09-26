@@ -1,4 +1,44 @@
-# Active task — Self-serve weekly workflow ("fully functional")
+# Active task — Password-protect the public site
+
+**Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort (authentication on a public deployment)
+**Status:** APPROVED (independent re-review 2026-09-26, PASS; see ops/REVIEW.md). Push allowed; the Overseer sets DASHBOARD_PASSWORD in Render, then verify / = 401 and /healthz = 200.
+**Date:** 2026-09-26
+**Milestone:** Put the Render deployment behind a password (Overseer request 2026-09-26, "just in case"), reversing the no-password choice for the hosted site. Remove the unused Railway config.
+
+## Required implementation
+
+1. **HTTP Basic authentication in `dashboard.py`**, enabled when the `DASHBOARD_PASSWORD` environment variable is set.
+   - It covers every route (static files and all `/api/*` GET and POST routes) except `/healthz`.
+   - Any username is accepted, and the password is compared in constant time.
+   - A missing or wrong password gets `401` with `WWW-Authenticate: Basic realm="FPL Brief"` and no data.
+   - The password is never logged or echoed.
+2. **Fail closed.** When `REQUIRE_PASSWORD=1` is set without a password (a Render misconfiguration), every route except `/healthz` returns `503` "password not configured". Local runs set neither variable, so behaviour there is unchanged.
+3. **Brute-force limit.** After 10 failed attempts per client within 10 minutes, return `429` for the rest of that window.
+   - The client is the first `X-Forwarded-For` hop, or the socket address.
+   - The failure table is bounded in memory.
+4. **`/healthz`.** Returns `200` "ok" when the built frontend is present, otherwise `503`, and exposes no data. `render.yaml` switches its healthcheck to `/healthz` and declares `DASHBOARD_PASSWORD` (`sync: false`, so the Overseer sets it in Render's dashboard) and `REQUIRE_PASSWORD=1`.
+5. **Tests.**
+   - Open when unset.
+   - `401` without credentials or with a wrong password, `200` with the right one, for static files, API GETs and POSTs.
+   - `/healthz` stays open.
+   - Fail-closed `503`.
+   - Lockout `429` and window expiry.
+   - The password never appears in responses.
+6. Delete `railway.json`. Update the README and ops records.
+
+## Allowed paths
+
+`dashboard.py`, `render.yaml`, `railway.json` (delete), `tests/test_dashboard.py`, `README.md`, and `ops/IMPLEMENTATION_REPORT.md`.
+
+## Release boundary
+
+- Push only after an independent review passes.
+- The Overseer sets `DASHBOARD_PASSWORD` in Render. Claude never enters it.
+- Verify after deploy that `/` returns `401` without credentials and `/healthz` returns `200`. The Overseer confirms sign-in.
+
+---
+
+# Closed task — Self-serve weekly workflow ("fully functional")
 
 **Owner:** Programmer (Claude Opus 5.5); review by a separate Opus 5.5 subagent at high effort, because it adds a local write endpoint for private account data
 **Status:** APPROVED LOCALLY (re-review 2026-09-26, local only; see ops/REVIEW.md)

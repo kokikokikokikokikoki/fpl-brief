@@ -1,4 +1,6 @@
+import base64
 import http.client
+import os
 import json
 import subprocess
 import tempfile
@@ -1123,3 +1125,112 @@ check(!desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "
 '''
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PasswordGateTests(unittest.TestCase):
+    PASSWORD = "correct horse battery staple"
+
+    def setUp(self):
+        dashboard.AUTH_FAILURES.clear()
+        self.addCleanup(dashboard.AUTH_FAILURES.clear)
+        dashboard.AUTH_GLOBAL_FAILURES.clear()
+        self.addCleanup(dashboard.AUTH_GLOBAL_FAILURES.clear)
+        self.server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def request(self, method, path, password=None, raw_auth=None, forwarded=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        headers = {"Origin": f"http://127.0.0.1:{self.server.server_port}"}
+        if password is not None:
+            headers["Authorization"] = "Basic " + base64.b64encode(f"any:{password}".encode()).decode()
+        if raw_auth is not None:
+            headers["Authorization"] = raw_auth
+        if forwarded:
+            headers["X-Forwarded-For"] = forwarded
+        if method == "POST":
+            headers["Content-Length"] = "0"
+        try:
+            connection.request(method, path, headers=headers)
+            response = connection.getresponse()
+            return response.status, dict(response.getheaders()), response.read().decode("utf-8", "replace")
+        finally:
+            connection.close()
+
+    def test_open_when_no_password_is_configured(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DASHBOARD_PASSWORD", None); os.environ.pop("REQUIRE_PASSWORD", None)
+            self.assertEqual(self.request("GET", "/api/workflow-status")[0], 200)
+
+    def test_password_required_for_every_route_except_healthz(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            for method, path in (("GET", "/"), ("GET", "/api/dashboard"), ("GET", "/api/workflow-status"), ("GET", "/api/plan?transfers=1:2"), ("POST", "/api/refresh"), ("PUT", "/api/plans")):
+                status, headers, body = self.request(method, path)
+                self.assertEqual(status, 401, (method, path))
+                self.assertIn('Basic realm="FPL Brief"', headers.get("WWW-Authenticate", ""))
+                self.assertNotIn(self.PASSWORD, body)
+                self.assertEqual(self.request(method, path, password="wrong")[0], 401, (method, path))
+            status, _, body = self.request("GET", "/api/workflow-status", password=self.PASSWORD)
+            self.assertEqual(status, 200)
+            self.assertNotIn(self.PASSWORD, body)
+            self.assertEqual(self.request("GET", "/", raw_auth="Basic !!!notbase64")[0], 401)
+            self.assertEqual(self.request("GET", "/", raw_auth="Bearer " + self.PASSWORD)[0], 401)
+            status, _, body = self.request("GET", "/healthz")
+            self.assertIn(status, (200, 503))
+            self.assertIn(body.strip(), ("ok", "frontend bundle missing"))
+            self.assertEqual(self.request("HEAD", "/config.json")[0], 405)
+
+    def test_fails_closed_when_required_but_unset(self):
+        with patch.dict(os.environ, {"REQUIRE_PASSWORD": "1"}):
+            os.environ.pop("DASHBOARD_PASSWORD", None)
+            status, _, body = self.request("GET", "/api/dashboard")
+            self.assertEqual(status, 503)
+            self.assertIn("not configured", body)
+            self.assertIn(self.request("GET", "/healthz")[0], (200, 503))
+
+    def test_repeated_failures_are_rate_limited_per_client_and_expire(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            for _ in range(dashboard.AUTH_MAX_FAILURES):
+                self.assertEqual(self.request("GET", "/", password="guess", forwarded="1.2.3.4, 203.0.113.9")[0], 401)
+            status, headers, _ = self.request("GET", "/", password=self.PASSWORD, forwarded="1.2.3.4, 203.0.113.9")
+            self.assertEqual(status, 429)
+            self.assertIn("Retry-After", headers)
+            self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="1.2.3.4, 198.51.100.7")[0], 200, "other clients unaffected")
+            with patch.object(dashboard.time, "monotonic", return_value=dashboard.time.monotonic() + dashboard.AUTH_WINDOW_SECONDS + 1):
+                self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="1.2.3.4, 203.0.113.9")[0], 200)
+            self.assertEqual(self.request("GET", "/")[0], 401, "the bare challenge (no header) is not counted as a failure")
+
+    def test_spoofed_forwarded_entries_cannot_evade_or_frame_a_client(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            with patch.object(dashboard, "AUTH_GLOBAL_MAX_FAILURES", 20):
+                statuses = [self.request("GET", "/", password="guess", forwarded=f"10.0.0.{i}, 203.0.113.50")[0] for i in range(25)]
+            self.assertIn(429, statuses, "rotating client-supplied entries is still capped by the global ceiling")
+            dashboard.AUTH_FAILURES.clear(); dashboard.AUTH_GLOBAL_FAILURES.clear()
+            for _ in range(12):
+                self.request("GET", "/", password="guess", forwarded="198.51.100.77, 203.0.113.60")
+            owner = self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="203.0.113.61")[0]
+            self.assertEqual(owner, 200, "naming the owner's address in a spoofed entry must not lock them out")
+
+    def test_global_ceiling_blocks_distributed_guessing_then_expires(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}), patch.object(dashboard, "AUTH_GLOBAL_MAX_FAILURES", 15):
+            for i in range(15):
+                self.assertEqual(self.request("GET", "/", password="guess", forwarded=f"192.0.2.{i}")[0], 401)
+            self.assertEqual(self.request("GET", "/", password="guess", forwarded="192.0.2.200")[0], 429)
+            with patch.object(dashboard.time, "monotonic", return_value=dashboard.time.monotonic() + dashboard.AUTH_WINDOW_SECONDS + 1):
+                self.assertEqual(self.request("GET", "/api/workflow-status", password=self.PASSWORD, forwarded="192.0.2.201")[0], 200)
+
+    def test_static_assets_are_privately_cached_behind_a_password(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}):
+            assets = sorted((dashboard.STATIC_DIST / "assets").glob("*.js"))
+            if not assets:
+                self.skipTest("frontend not built")
+            status, headers, _ = self.request("GET", f"/assets/{assets[0].name}", password=self.PASSWORD)
+            self.assertEqual(status, 200)
+            self.assertTrue(headers.get("Cache-Control", "").startswith("private"), headers.get("Cache-Control"))
+
+    def test_failure_table_is_bounded(self):
+        with patch.dict(os.environ, {"DASHBOARD_PASSWORD": self.PASSWORD}), patch.object(dashboard, "AUTH_MAX_CLIENTS", 5):
+            for index in range(12):
+                self.request("GET", "/", password="x", forwarded=f"192.0.2.{index}")
+            self.assertLessEqual(len(dashboard.AUTH_FAILURES), 5)

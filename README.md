@@ -147,17 +147,25 @@ docker run --rm -e PORT=8080 -p 127.0.0.1:8080:8080 fpl-brief:local
 ```
 
 **Render (current host).** `render.yaml` is a Blueprint for a free Docker web
-service that auto-deploys on every commit to `main` and uses a `/` healthcheck. To
-set it up in Render: New → Blueprint → choose this repo → Apply. Free instances
-sleep after about 15 idle minutes, so the first visit takes a moment to wake the
-site. `railway.json` below is kept in case you move back to Railway.
+service. It auto-deploys on every commit to `main` and uses the `/healthz`
+healthcheck (unauthenticated, no data, 200 only when the frontend bundle is
+built). To set it up in Render: New → Blueprint → choose this repo → Apply.
 
-**Railway (deployed from GitHub).** `railway.json` selects the Dockerfile builder,
-a `/` healthcheck (this passes only when the built frontend is in the image) and
-restart-on-failure. Railway builds on every push to `main`, including the
-scheduled digest commits, so the public site picks up fresh FPL data
-automatically. The site is public and has no password (Overseer decision
-2026-09-26). Private account features are local-only by design.
+The site is password-protected (Overseer decision 2026-09-26):
+- Set `DASHBOARD_PASSWORD` in Render → your service → **Environment**. Use a long
+  random password or passphrase (16+ characters) and enter it only there.
+- Your browser shows its standard sign-in prompt. Any username works; the password
+  is what counts. It is checked in constant time over Render's HTTPS.
+- 10 wrong attempts from one address within 10 minutes lock that address out for
+  the rest of the window. A visitor is identified by the full forwarded address
+  chain, which nobody can reproduce for someone else, so nobody can lock you out
+  by imitating you. The real guard is site-wide: 100 wrong attempts in 10
+  minutes pause all sign-ins for the rest of the window: someone could briefly
+  make the site unavailable, but they can never grind through passwords.
+- `REQUIRE_PASSWORD=1` keeps the site locked (503) if the password is ever missing.
+- Local runs set neither variable, so nothing changes on your PC.
+- Free instances sleep after about 15 idle minutes, so the first visit takes a
+  moment to wake the site.
 
 Server-side `data/` is disposable: a restart returns to the snapshot baked into
 the image, so use **Refresh FPL data** after a redeploy. Pushing, creating a

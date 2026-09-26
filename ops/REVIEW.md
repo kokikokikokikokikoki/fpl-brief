@@ -703,3 +703,135 @@ On a loopback bind, `/api/*` GETs refuse any Host that is not local, using `host
 ### Release boundary
 
 Approved locally only; nothing is released. No commit, stage, push, deploy, or FPL network call was made. There was no POST to :8765/:8766 and no call to `/api/refresh`/`/api/research`. The real `local/private_team.json` was neither read nor written.
+
+## Password-protect the public site — independent review
+
+**Date:** 2026-09-26
+**Reviewer:** independent Supervisor/Reviewer subagent (Claude Opus 5.5), HIGH-RISK tier (authentication on a public deployment). Did not implement the change.
+**Verdict:** FAIL — CHANGES_REQUESTED
+
+The gate itself is sound. On a throwaway 127.0.0.1 server with the env set in the probe process, no route and no method returned data without the password. The brute-force limit (required item 3) can be bypassed, and it can be turned against the owner, because it trusts a header the client controls.
+
+### Findings
+
+- **Medium (blocking), `dashboard.py:590-592` `client_id()` plus `gate()` at `dashboard.py:594-633`. The rate limit keys on the client-supplied first `X-Forwarded-For` hop.**
+  - **Rotation bypass.** Render's proxy passes along an incoming `X-Forwarded-For` and appends to it, the usual behaviour, which I could not verify without touching the live site. The first hop is then whatever the attacker sends. Probe: 40 wrong passwords, rotating `X-Forwarded-For: rotN, 10.0.0.1` every 9 attempts, got 40/40 password checks (all `401`) and not a single `429`. The limit gives no protection against guessing.
+  - **Targeted lockout.** Sending 12 bad attempts with `X-Forwarded-For: victim` made the victim's *correct* password return `429` for the rest of the window. The 429 check runs before the password check, so anyone who knows the Overseer's IP can lock them out.
+  - The handoff says only a direct-to-origin client could spoof the header. That is inaccurate whenever the proxy appends rather than overwrites.
+- **Low, `dashboard.py:775` `serve_static`. Hashed assets are sent with `Cache-Control: public, max-age=300` on authenticated responses.** `public` explicitly lets a shared cache store a response to a request that carried `Authorization` (RFC 9111 §3.5). If any edge cache in front of Render honours it, the JS and CSS bundle could be served without a password. The bundle holds no private data, and `/api/*` is `no-store`, so the impact is small. Use `private` when a password is configured.
+- **Info (no change needed).**
+  - `HEAD` now returns `405` everywhere, including `/healthz`. Render's health check uses GET.
+  - Constant-time comparison leaks only length (`hmac.compare_digest`), which is acceptable.
+  - A 100-request concurrent burst from one client produced exactly 10 `401`s and 90 `429`s, so the check-then-record race was not exploitable in practice.
+
+### Probe results (throwaway server, `DASHBOARD_PASSWORD` and `REQUIRE_PASSWORD=1` set in-process)
+
+- **Methods and paths.**
+  - Tested GET, POST, PUT, HEAD, OPTIONS, DELETE, PATCH, TRACE and CONNECT.
+  - Against `/`, `/api/dashboard`, `/api/jobs/x`, `/assets/`, `/healthz`, `/healthz/`, `/healthz/../api/dashboard`, `//healthz`, `//x/healthz`, `/healthz?x=1`, `/healthz#frag`, `/%68ealthz`, and the absolute-form `http://h/healthz` and `http://h/api/dashboard`.
+  - Every non-healthz GET/POST/PUT returned `401`. HEAD returned `405` (no body). The other methods returned the base `501` (no data).
+  - Only GET `/healthz` and its variants that normalise to it returned `200 ok`. POST and PUT to `/healthz` reached only a 404/405 stub with no data.
+- **HTTP/0.9** `GET /api/dashboard` with no version: no data returned.
+- **Authorization header parsing.**
+  - A lowercase `bAsIc` scheme, an empty username and a colon inside the password were all accepted correctly.
+  - Non-ASCII bytes, `Bearer` and `!!!notbase64` all returned `401`.
+  - A 70 KB header returned `431`.
+  - With a duplicate Authorization header, the first one wins (`401`).
+- **Password confidentiality.** The password never appears in response bodies, and `log_message` is a no-op.
+- **Failure table.** 300 distinct failing clients stayed bounded (limit 2048, FIFO eviction), and 300 requests took 0.18 s.
+- **Fail closed.** `REQUIRE_PASSWORD=1` with an empty password returned `503` for `/` and `POST /api/refresh`, while `/healthz` returned `200`.
+- **Local behaviour with no env is unchanged.** `/` returns `200`. An `/api/*` GET with `Host: evil.com` returns `403`. A cross-origin `POST /api/refresh` returns `403`.
+- **Frontend.** All fetches are relative and same-origin (`dashboard/app.ts:273`, `:371`, `dashboard/desk-tools.ts:103`), with the default credentials mode, so the browser's cached Basic credentials for the `/` protection space are sent.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `python -m unittest discover -s tests` | 150 OK |
+| `node --test tests/*.mjs` | 10/10 pass |
+| `npm run typecheck --prefix dashboard` | Pass |
+| `npm run build --prefix dashboard` | Pass |
+| `git diff --check` | Clean |
+
+`render.yaml` sets `healthCheckPath: /healthz`, `DASHBOARD_PASSWORD` with `sync: false`, and `REQUIRE_PASSWORD="1"`, which is correct. `railway.json` is deleted.
+
+### Required follow-up (bounded; same allowed paths)
+
+1. Stop letting a client pick its own rate-limit bucket.
+   - Key on the right-most `X-Forwarded-For` hop, which is the one the nearest proxy appended, and fall back to the socket address.
+   - Also add a global failure ceiling, for example 100 failed attempts per 10 minutes across all clients, beyond which password checks return `429`. Rotating the header then cannot yield unlimited guesses.
+   - Document the trade-off: an attacker can make the site unavailable temporarily, but cannot guess passwords. `/healthz` stays open.
+2. Add tests:
+   - rotating `X-Forwarded-For` first hops cannot exceed the limits;
+   - a spoofed first hop cannot lock out a different client's right-most address;
+   - the global ceiling applies and expires.
+3. Low: when a password is configured, send `Cache-Control: private, max-age=300` for static assets.
+4. README: recommend a long random password (16 or more characters), since the password is the primary control.
+
+### Release note
+
+Do not push. Push is allowed only after a re-review PASS. After the push, the Overseer sets `DASHBOARD_PASSWORD` in Render → Environment; Claude never enters it. Then verify that `/` returns `401` without credentials and `/healthz` returns `200`, and the Overseer confirms sign-in.
+
+## Password-protect the public site — re-review
+
+**Date:** 2026-09-26
+**Reviewer:** independent Supervisor/Reviewer subagent (Claude Opus 5.5), HIGH-RISK tier. Did not implement the change.
+**Verdict:** PASS — APPROVED
+
+The follow-up closes the blocking finding from the first review.
+
+`client_id` (`dashboard.py:593-598`) now uses the whole normalised `X-Forwarded-For` chain (first 256 characters) plus the socket peer. This departs from my right-most-hop suggestion, which is fine. Render's documented behaviour may make the right-most entry a shared internal hop, so the chosen design is the safer one.
+
+The global ceiling (`AUTH_GLOBAL_MAX_FAILURES = 100` over `AUTH_WINDOW_SECONDS`, `dashboard.py:48-49`, `gate()` at `:600-643`) is now the real bound on guessing.
+
+### Adversarial probes (throwaway 127.0.0.1 server)
+
+Both proxy orderings were simulated: Render puts the real IP first (prepend) or adds it after the client's entries (append), with a trailing shared hop in each case.
+
+| Probe | Prepend | Append |
+| --- | --- | --- |
+| Framing: 10 spoofed chains naming the victim IP (`V`, `V, hop`, `, ,V`, `V,`, padded with spaces, 300-character padding + `V`), 10 bad attempts each | Victim's correct password returns `200` | Same |
+| Guessing bound: 250 attempts, rotating a spoofed entry each time | 100 × `401`, then 150 × `429` | Same |
+| Global list and table after rotation | 100 each | Same |
+| Correct password during the global lock | `429` | Same |
+| `/healthz` during the global lock | `200` | Same |
+| After the window, with the clock patched +601 s | `200`; list pruned to 0 | Same |
+| Honest per-client limit | 10 × `401`, then `429`; another client unaffected (`200`) | Same |
+
+- **Why framing fails.** In both orderings, every chain an attacker can produce still contains the attacker's own real address. None normalises to the victim's key.
+- **Truncating at 256 characters cannot frame anyone either.** A padded chain loses its real IP, but its key is then 256 characters long and cannot equal a normal short key.
+- **Concurrency.** A burst of 300 simultaneous distinct clients produced exactly 100 `401`s and 200 `429`s, and the global list stayed at 100. The ceiling is checked and recorded under `AUTH_LOCK`.
+- **Unauthenticated requests are not counted.** 150 requests with no Authorization header added 0 entries.
+- **Static caching.** Behind the password, an asset returns `Cache-Control: private, max-age=300`, and `401` without credentials. Locally with no env, it stays `public, max-age=300`.
+- **No regressions.**
+  - The password is never echoed.
+  - Fail-closed still returns `503`, with `/healthz` at `200`.
+  - Local runs with no env keep the foreign-`Host` API `403` and the cross-origin `POST /api/refresh` `403`.
+  - The first review's method and path matrix is unchanged: only GET `/healthz` is open.
+
+### Findings
+
+- **Info (accepted trade-off; documented in `README.md:156-164`).** Anyone can deny access to everyone, the owner included, with about 100 bad attempts every 10 minutes. `/healthz` stays open, so Render will not restart the service. This is the intended exchange of password grinding for possible unavailability. The README asks for a password of 16 or more random characters.
+- **Info.** On Render the socket peer is a proxy address that may vary between requests. That only weakens the per-client limit; the global ceiling still bounds guessing. No change needed.
+
+No blocking findings remain.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `python -m unittest discover -s tests` | 153 OK |
+| `node --test tests/*.mjs` | 10/10 pass |
+| `npm run typecheck --prefix dashboard` | Pass |
+| `npm run build --prefix dashboard` | Pass |
+| `git diff --check` | Clean |
+
+`render.yaml` still sets the `/healthz` healthcheck, `DASHBOARD_PASSWORD` with `sync: false`, and `REQUIRE_PASSWORD="1"`.
+
+### Release note
+
+Push to `main` is allowed. Render auto-deploys on the push, and `REQUIRE_PASSWORD=1` keeps the site at `503` until the password is set.
+
+The Overseer then sets `DASHBOARD_PASSWORD` (16 or more random characters) in Render → Environment; Claude never enters it.
+
+Verify after deploy that `/` returns `401` without credentials and `/healthz` returns `200`. The Overseer confirms sign-in in their browser.

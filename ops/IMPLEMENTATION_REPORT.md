@@ -749,3 +749,59 @@ Smoke test of the public URL (read-only apart from one public-data Refresh):
 | Refresh FPL data | "Snapshot refreshed" (04:30 UTC); the non-root container user can write `data/` and `digest.md` |
 
 The site is public with no password, per the Overseer's decision. Auto-deploy runs on every commit to `main`.
+
+## Password-protect the public site — Programmer handoff
+
+**Date:** 2026-09-26 · **Status:** IN_REVIEW · **Programmer:** Claude Opus 5.5
+
+### Changed paths
+
+- **`dashboard.py`.** When `DASHBOARD_PASSWORD` is set, `Handler.gate(path)` runs first in `do_GET`, `do_POST` and `do_PUT` and protects every route except `/healthz`:
+  - HTTP Basic, any username; `basic_password()` uses strict base64 and UTF-8, and `hmac.compare_digest` compares against the password.
+  - A missing or wrong password gets `401` with `WWW-Authenticate: Basic realm="FPL Brief", charset="UTF-8"` and a no-store body with no data.
+  - **Failures.** Only attempts that send an Authorization header are counted, per client (the first `X-Forwarded-For` hop capped at 64 characters, else the socket address), in a 10-minute window. The 10th failure triggers `429` with `Retry-After`. The table holds at most 2048 clients (oldest evicted) and is lock-protected.
+  - **Fail closed.** `REQUIRE_PASSWORD=1` without a password returns `503` everywhere except `/healthz`.
+  - **`/healthz`** returns `200` "ok" if `dist/index.html` exists, else `503`. It returns no data.
+  - **`do_HEAD`.** Newly overridden to return `405`. The inherited `SimpleHTTPRequestHandler.do_HEAD` previously served headers for any file in the working directory, a pre-existing gap now closed.
+  - The password is never logged, since `log_message` is a no-op, and never echoed.
+- **`render.yaml`.** The healthcheck is now `/healthz`. It sets `envVars`: `DASHBOARD_PASSWORD` (`sync: false`, which the Overseer sets in Render) and `REQUIRE_PASSWORD="1"`.
+- **`railway.json`.** Deleted. Railway is no longer used; the Overseer deletes the Railway project in their own browser.
+- **`README.md`.** Documents the password setup and behaviour.
+- **`tests/test_dashboard.py`.** `PasswordGateTests` (5 tests):
+  - open when unset;
+  - `401` on static, API GET, POST and PUT without credentials or with a wrong password;
+  - `200` with the right one;
+  - malformed and Bearer headers rejected;
+  - `/healthz` open;
+  - `HEAD` returns `405`;
+  - fail-closed `503`;
+  - per-client `429` with expiry, and other clients unaffected;
+  - the bare challenge is not counted;
+  - the table is bounded.
+
+### Verification
+
+150 Python tests, Node, py_compile and `git diff --check` all pass.
+
+### Notes
+
+- Basic auth relies on Render's HTTPS; the browser caches the credentials for the session.
+- `X-Forwarded-For` is set by Render's proxy. A direct-to-origin client could spoof it to dodge the per-client limit, but Render does not expose the origin.
+
+### Bounded follow-up — 2026-09-26 security review findings
+
+- **Client identity (`client_id`).** I did not adopt the suggested right-most `X-Forwarded-For` entry. Render's public statement ([feedback.render.com](https://feedback.render.com/features/p/send-the-correct-xforwardedfor)) says it "sets the first IP in the list to the real client IP" and also appends. Taken together, the right-most entry could be a Render internal hop shared by every visitor, which would make the per-client limit global and reopen owner lockout.
+
+  Instead, the identity is the whole normalised chain (capped at 256 characters) plus the socket peer. The consequences are:
+  - A visitor can add entries, which only evades the per-client limit.
+  - No visitor can reproduce another's chain, because Render always inserts the real address. Framing or locking out the owner is therefore impossible, whatever order Render uses.
+- **Global ceiling.** 100 failures across all clients within 10 minutes returns `429` with `Retry-After` for everyone. This is the actual brute-force bound (≤14,400 guesses a day, hopeless against 16+ random characters). The README documents the trade-off: temporary unavailability is possible, password grinding is not.
+- **Static caching.** Assets are sent as `private, max-age=300` whenever a password is set, and stay `public` locally.
+- **README.** Recommends 16+ random characters and explains the identity model and the ceiling.
+- **Tests.**
+  - Rotating spoofed entries is capped by the global ceiling.
+  - A spoofed chain naming another address does not lock out the owner.
+  - The global ceiling blocks at the limit and expires.
+  - Assets are `private` behind the password.
+  - Existing tests are updated for the global table.
+- **Results.** 153 Python tests, Node tests, py_compile and `git diff --check` all pass.

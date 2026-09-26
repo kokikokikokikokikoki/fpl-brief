@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Local, read-only dashboard for the FPL Brief snapshot."""
 
+import base64
+import binascii
+import hmac
 import json
 import math
 import mimetypes
@@ -9,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -35,6 +39,32 @@ LOCAL = ROOT / "local"
 PRIVATE_TEAM = LOCAL / "private_team.json"
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 MAX_IMPORT_BYTES = 64 * 1024
+# Optional password for hosted deployments (HTTP Basic over HTTPS). Unset locally.
+AUTH_WINDOW_SECONDS = 600
+AUTH_MAX_FAILURES = 10
+AUTH_MAX_CLIENTS = 2048
+AUTH_FAILURES = {}
+# Across all clients: caps total guessing even if per-client identity is evaded (may briefly lock everyone out).
+AUTH_GLOBAL_MAX_FAILURES = 100
+AUTH_GLOBAL_FAILURES = []
+AUTH_LOCK = threading.Lock()
+
+
+def auth_settings(environ=None):
+    """Return (password, required) from DASHBOARD_PASSWORD and REQUIRE_PASSWORD."""
+    environ = os.environ if environ is None else environ
+    return environ.get("DASHBOARD_PASSWORD") or "", environ.get("REQUIRE_PASSWORD") == "1"
+
+
+def basic_password(header):
+    """Extract the password from an HTTP Basic Authorization header, or None."""
+    if not header or not header[:6].lower() == "basic ":
+        return None
+    try:
+        decoded = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    return decoded.split(":", 1)[1] if ":" in decoded else None
 JOBS = {}
 MAX_PLANS = 4
 MISSING_BUNDLE_MESSAGE = (
@@ -560,9 +590,73 @@ class Handler(SimpleHTTPRequestHandler):
         hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
         return hostname in {"127.0.0.1", "localhost", "[::1]"}
 
+    def client_id(self):
+        # Proxies differ on where they put the real address, so key on the whole chain plus the socket peer:
+        # a visitor can add entries (evading only the per-client limit, which the global ceiling backs up)
+        # but can never reproduce another visitor's chain, so nobody can be locked out by imitation.
+        chain = ",".join(entry.strip() for entry in (self.headers.get("X-Forwarded-For") or "").split(",") if entry.strip())
+        return f"{chain[:256]}|{self.client_address[0]}"
+
+    def gate(self, path):
+        """Allow the request, or answer 401/429/503 when the hosted password is required."""
+        if path == "/healthz":
+            return True
+        password, required = auth_settings()
+        if not password:
+            if required:
+                self.send_text("Password protection is required but DASHBOARD_PASSWORD is not configured.\n", HTTPStatus.SERVICE_UNAVAILABLE)
+                return False
+            return True
+        client, now = self.client_id(), time.monotonic()
+        with AUTH_LOCK:
+            recent = [stamp for stamp in AUTH_FAILURES.get(client, []) if now - stamp < AUTH_WINDOW_SECONDS]
+            if recent:
+                AUTH_FAILURES[client] = recent
+            else:
+                AUTH_FAILURES.pop(client, None)
+            AUTH_GLOBAL_FAILURES[:] = [stamp for stamp in AUTH_GLOBAL_FAILURES if now - stamp < AUTH_WINDOW_SECONDS]
+            blocking = recent if len(recent) >= AUTH_MAX_FAILURES else AUTH_GLOBAL_FAILURES if len(AUTH_GLOBAL_FAILURES) >= AUTH_GLOBAL_MAX_FAILURES else None
+            if blocking:
+                self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
+                self.send_header("Retry-After", str(int(AUTH_WINDOW_SECONDS - (now - blocking[0])) + 1))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+        header = self.headers.get("Authorization")
+        supplied = basic_password(header)
+        if supplied is not None and hmac.compare_digest(supplied.encode("utf-8"), password.encode("utf-8")):
+            return True
+        if header:
+            with AUTH_LOCK:
+                if client not in AUTH_FAILURES and len(AUTH_FAILURES) >= AUTH_MAX_CLIENTS:
+                    AUTH_FAILURES.pop(next(iter(AUTH_FAILURES)))
+                AUTH_FAILURES.setdefault(client, []).append(now)
+                AUTH_GLOBAL_FAILURES.append(now)
+        body = b"Sign in to view this FPL Brief dashboard.\n"
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="FPL Brief", charset="UTF-8"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
+    def do_HEAD(self):
+        # Never fall back to the base class, which would expose files from the working directory.
+        self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+        self.send_header("Allow", "GET, POST")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        if not self.gate(path):
+            return
+        if path == "/healthz":
+            ready = (STATIC_DIST / "index.html").is_file()
+            return self.send_text("ok\n" if ready else "frontend bundle missing\n", HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE)
         # On a loopback-bound server, refuse API reads addressed to any other hostname (DNS rebinding).
         if path.startswith("/api/") and self.server.server_address[0] in LOOPBACK_HOSTS and not self.host_is_local():
             return self.send_json({"error": "This dashboard only answers on localhost."}, HTTPStatus.FORBIDDEN)
@@ -626,6 +720,8 @@ class Handler(SimpleHTTPRequestHandler):
         return self.serve_static(path)
 
     def do_POST(self):
+        if not self.gate(urlparse(self.path).path):
+            return
         # On this machine, only this dashboard's own pages may trigger actions (blocks cross-site and DNS-rebinding posts).
         if self.server.server_address[0] in LOOPBACK_HOSTS and self.path in ("/api/research", "/api/refresh", "/api/plans/compare") and not self.same_origin_local():
             return self.send_json({"error": "Actions only work from this dashboard on this machine."}, HTTPStatus.FORBIDDEN)
@@ -668,6 +764,8 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json({"error": "Unknown endpoint"}, HTTPStatus.NOT_FOUND)
 
     def do_PUT(self):
+        if not self.gate(urlparse(self.path).path):
+            return
         return self.send_json({"error": "Drafts are device-local; server plan writes are disabled."}, HTTPStatus.METHOD_NOT_ALLOWED)
 
     def serve_static(self, path):
@@ -683,7 +781,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
         # index.html names the hashed bundle files, so it must be revalidated after every build.
-        self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else "public, max-age=300")
+        # Behind a password, never let shared caches keep a copy of the app.
+        scope = "private" if auth_settings()[0] else "public"
+        self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else f"{scope}, max-age=300")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
