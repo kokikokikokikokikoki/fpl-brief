@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-29T05:47:21.119180+00:00",
+  "generated_at_utc": "2026-09-29T12:58:02.886108+00:00",
   "chip_rules": [
     {
       "id": 1,
@@ -287,7 +287,7 @@
   "manager": {
     "entry_name": "kokonut",
     "points": 381,
-    "overall_rank": 68868,
+    "overall_rank": 68867,
     "history": [
       {
         "event": 1,
