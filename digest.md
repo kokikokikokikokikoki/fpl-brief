@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-30T12:39:14.566661+00:00 · squad snapshot GW5_
+_Snapshot 2026-09-30T22:19:07.791259+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -22,6 +22,7 @@ _Snapshot 2026-09-30T12:39:14.566661+00:00 · squad snapshot GW5_
 | Player | Status | Chance | Updated | FPL news |
 |---|---|---|---|---|
 | João Pedro | doubtful | 75% | 2026-09-16T19:00:09.919929Z | Knee injury - 75% chance of playing |
+| Van Hecke | doubtful | 75% | 2026-09-30T16:00:09.552205Z | Foot injury - 75% chance of playing |
 
 ## Rival comparison
 | Rival | Rank | Pts | Shared players | Snapshot |
