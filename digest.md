@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-10-02T22:17:06.039030+00:00 · squad snapshot GW5_
+_Snapshot 2026-10-03T05:22:11.510745+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -46,7 +46,7 @@ _Snapshot 2026-10-02T22:17:06.039030+00:00 · squad snapshot GW5_
 | Van Hecke | TOT | 2 | £4.9m |  |
 | Calafiori | ARS | 2 | £5.8m |  |
 | Gibbs-White | NFO | 3 | £8.0m |  |
-| Szoboszlai | LIV | 3 | £7.0m |  |
+| Szoboszlai | LIV | 3 | £6.9m |  |
 | Cherki | MCI | 3 | £7.8m |  |
 | Rogers | CHE | 3 | £7.7m | VC |
 | Haaland | MCI | 4 | £15.6m | C |
