@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-10-03T21:19:46.653289+00:00 · squad snapshot GW5_
+_Snapshot 2026-10-04T05:58:10.295375+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -54,7 +54,7 @@ _Snapshot 2026-10-03T21:19:46.653289+00:00 · squad snapshot GW5_
 | Dubravka | TOT | 1 | £4.0m |  |
 | João Pedro | CHE | 4 | £7.7m |  |
 | De Cuyper | BHA | 2 | £5.0m |  |
-| Groß | BHA | 3 | £5.8m |  |
+| Groß | BHA | 3 | £5.9m |  |
 
 ## Six-gameweek fixture horizon
 - GW6: ARS (FDR 3) v LEE (FDR 5); AVL (FDR 3) v BRE (FDR 3); CHE (FDR 3) v BOU (FDR 4); SUN (FDR 3) v BHA (FDR 3); MUN (FDR 2) v TOT (FDR 4); CRY (FDR 3) v NFO (FDR 3); LIV (FDR 4) v MCI (FDR 4); COV (FDR 3) v NEW (FDR 2)
