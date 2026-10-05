@@ -97,7 +97,7 @@ export function renderPlanner(view: PlannerView): string {
   const result = view.result;
   if (result.state !== "ready") {
     if (result.state === "unavailable") {
-      return `<div class="evidence-warning" role="alert"><strong>Planner unavailable here.</strong> The planner runs on your own computer, next to your account data. Install it with <code>pip install -r requirements-planner.txt</code> and use the local dashboard. <span class="small">(${esc(result.reason)})</span></div>`;
+      return `<div class="evidence-warning" role="alert"><strong>Planner unavailable here.</strong> The planner runs on your own computer, next to your account data. Install it with <code>python -m pip install -r requirements-planner.txt</code> and use the local dashboard. <span class="small">(${esc(result.reason)})</span></div>`;
     }
     const title = result.state === "infeasible" ? "No legal plan" : "Planner blocked";
     return `<div class="evidence-warning" role="alert"><strong>${esc(title)}.</strong> ${esc(result.reason)}</div>`;

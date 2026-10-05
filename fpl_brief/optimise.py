@@ -6,7 +6,7 @@ tracking the bank and free transfers week by week, and maximises the decayed sum
 minus hits and a small per-transfer threshold, plus one-time values for the free transfers and cash
 still held at the end of the horizon. HiGHS (``highspy``) solves it; the
 import is optional and the rest of the app works without it. It is installed for local use only
-(``pip install -r requirements-planner.txt``); the hosted image leaves it out because account data
+(``python -m pip install -r requirements-planner.txt``); the hosted image leaves it out because account data
 is local-only.
 
 Read-only: it suggests plans from estimates and never contacts FPL. Every next-GW suggestion is
@@ -57,7 +57,7 @@ XI_LIMITS = {1: (1, 1), 2: (3, 5), 3: (2, 5), 4: (1, 3)}
 SQUAD_SIZE, XI_SIZE = 15, 11
 BIG_M = 20
 UNAVAILABLE = {"state": "unavailable", "reason": "Planner needs the highspy package"}
-INSTALL_HINT = "pip install -r requirements-planner.txt"
+INSTALL_HINT = "python -m pip install -r requirements-planner.txt"
 INF = float("inf")
 # The planner score (the objective) splits into these parts; plans report each one against holding.
 SCORE_PARTS = ("points_gain", "hits", "transfer_penalty", "ft_value", "bank_value")
