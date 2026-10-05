@@ -24,15 +24,16 @@ These are defaults for future milestones. Model availability can vary during acc
 
 ### Claude Code sessions
 
-When the work runs in Claude Code, use this mapping instead of the table above. Sonnet is not used (Overseer decision, 2026-09-25).
+When the work runs in Claude Code, use this mapping instead of the table above (Overseer decision, 2026-10-05, replacing the 2026-09-25 split).
 
 | Role / work | Model | Effort | Guidance |
 | --- | --- | --- | --- |
-| Supervisor: task definition, architecture | Opus 5.5 | medium | Main session. |
-| Programmer: bounded or cross-module work | Opus 5.5 | medium; high if ambiguous | Main session. Record the reason for high effort in `TASK.md`. |
+| Orchestrator / Supervisor: task definition, architecture, hand-offs | Fable 5.1 | medium | Main session. |
+| Programmer | Opus 5.5 subagent | medium | Record the reason for any higher effort in `TASK.md`. |
 | Reviewer: routine milestone | Opus 5.5 subagent | medium | Always a separate subagent that did not implement the work. |
 | Reviewer: security, data-loss, public-release/deploy | Opus 5.5 subagent | high | Same separation. |
-| Mechanical work: whitespace, typo, or doc-only fixes, read-only file searches | Haiku 4.5 subagent | default | Only when no judgment is needed. Opus reviews the result. |
+| Researcher | Opus 5.5 subagent | medium | Writes findings to a file the task names. |
+| Minor tasks: typo or doc-only fixes, read-only searches, mechanical edits | Sonnet 5.5 subagent | medium | Only when no judgment is needed. |
 | Research Scout collection | No model | n/a | Deterministic. |
 
 Token discipline:

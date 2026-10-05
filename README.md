@@ -126,7 +126,9 @@ Claude can also capture it for you from its browser pane.
    - checked against position, availability, the three-per-club limit and your
      real budget (selling prices plus bank);
    - the best XI and captain with those players;
-   - the next-gameweek FPL estimate change after any −4 hits.
+   - the next-gameweek FPL estimate change after any −4 hits;
+   - the six-gameweek change (best XI each week, later weeks weighted 0.85 per
+     week), an estimate from the projection described below.
    Plans are saved in this browser only.
 4. **Crowd & Jev** shows what FPL managers are doing: the most bought and sold
    players this gameweek, price risers, ownership, captaincy and chip counts, and
@@ -204,7 +206,8 @@ Overseer release decision (see `ops/WORKFLOW.md`).
 - The Decision Desk uses deterministic rules only: it pauses recommendations for stale, incomplete, warning-bearing, or post-deadline snapshots.
 - `config.json` keeps the optional Jev layer disabled by default. It makes no network requests until a reviewed integration is explicitly configured.
 - Research Desk renders only dated facts recorded in `data/research_packet.json`. Each source needs a title, URL, retrieval time, verification state, and at least one labeled fact. Run `run-research.ps1` to validate it locally and update `data/workflow_status.json`.
-- Candidate Lens lists legal same-position replacements that meet the shown budget, team-limit, availability, minutes, xGI/90, and fixture-horizon filters. It is not a points forecast; confirm your selling price before acting.
+- Candidate Lens lists legal same-position replacements that meet the shown budget, team-limit, availability, minutes, xGI/90, and fixture-horizon filters. Its "Next 6 GWs" column is an estimate, not a forecast; confirm your selling price before acting.
+- Six-gameweek projections (`fpl_brief/projection.py`) start from FPL's `ep_next`, remove next week's fixture difficulty, then re-weight each later fixture using club attack/defence ratings fitted to this season's results (`team_results` in `data/latest.json`: scores from `fixtures/`, club xG summed from `event/{gw}/live/`). Ratings are shrunk with 6 average pseudo-matches; attack/clean-sheet weights per position are heuristics. Blank weeks give 0, double weeks add both fixtures, and players FPL lists out give 0. Older snapshots without `team_results` rate every club as average.
 - Run `run-refresh.ps1` for the existing public FPL refresh. It never makes FPL actions.
 
 

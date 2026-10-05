@@ -1123,6 +1123,8 @@ const invalid = plan.renderPlanStrip([{ out: 1, in: 10 }], { state: "invalid", r
 check(invalid.includes("&lt;b&gt;Out&lt;/b&gt;") && invalid.includes("In&amp;Co") && invalid.includes("&lt;i&gt;no&lt;/i&gt;") && !/<(b|i)>/.test(invalid), "strip escaping");
 const ready = plan.renderPlanStrip([{ out: 1, in: 10 }, { out: 2, in: 11 }], { state: "ready", lineup: {}, summary: { transfers: [{}, {}], budget_left: 7, free_transfers: 1, paid_transfers: 1, hit_points: 4, xi_delta: 3.5, net_delta: -0.5, method: "m" } }, names);
 check(ready.includes("-0.5") && ready.includes("1 of 1 free transfers") && ready.includes("hit −4") && ready.includes("£0.7m left") && ready.includes('data-remove-out="1"'), "ready summary");
+const horizon = plan.renderPlanStrip([{ out: 1, in: 10 }], { state: "ready", lineup: {}, summary: { transfers: [{}], budget_left: 7, free_transfers: 1, paid_transfers: 0, hit_points: 0, xi_delta: 1, net_delta: 1, horizon_delta: 6.4, horizon_gameweeks: [6, 7, 8, 9, 10, 11], method: "<m>" } }, names);
+check(horizon.includes("+6.4</strong> over the next 6 GWs (decayed estimate)") && horizon.includes("&lt;m&gt;") && !ready.includes("over the next"), "six-week delta shown only when present");
 check(plan.renderPlanStrip([], null, names) === "", "no plan, no strip");
 const missing = desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "m", captured_at_utc: null, age_hours: null }, 6572775);
 check(missing.includes("https://fantasy.premierleague.com/api/my-team/6572775/") && missing.includes('rel="noopener noreferrer"') && missing.includes("never your password") && missing.includes("<details class=\"account-import\" open"), "import section on missing");

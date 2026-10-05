@@ -150,6 +150,24 @@ class CandidateLensTests(unittest.TestCase):
         self.assertEqual(result["budget"], 75)
         self.assertEqual(result["candidates"][0]["xgi_per_90"], 0.5)
         self.assertEqual(result["candidates"][0]["fixture_difficulty_average"], 2.0)
+        # No team results in this snapshot: ratings stay average and the response says so.
+        self.assertEqual((result["candidates"][0]["xp_6"], result["candidates"][0]["xp_6_decayed"]), (0.0, 0.0))
+        self.assertIn("xp_6", result["outgoing"])
+        self.assertFalse(result["projection"]["ratings_fitted"])
+        self.assertTrue(any("no team results" in caveat for caveat in result["caveats"]))
+
+    def test_lens_projects_next_six_gameweeks(self):
+        self.snapshot["events"]["next"]["id"] = 1
+        self.snapshot["fixtures"]["events"][2] = [{"team_h": 2, "team_a": 1}, {"team_h": 3, "team_a": 2}]
+        self.snapshot["team_results"] = []
+        for player in self.catalog["players"]:
+            player["ep_next"] = "4.0"
+        self.catalog["players"][0]["form"] = "3.0"  # the outgoing club blanks next GW, so form is the base
+        result = lens(self.snapshot, self.catalog, 1, 450, now=self.now)
+        candidate = result["candidates"][0]
+        self.assertEqual(result["projection"]["gameweeks"], [1, 2])
+        self.assertEqual((candidate["xp_6"], candidate["xp_6_decayed"]), (12.0, round(4 + 8 * 0.85, 2)))
+        self.assertEqual(result["outgoing"]["xp_6"], 3.0)
 
     def test_lens_requires_an_owned_outgoing_player(self):
         with self.assertRaisesRegex(ValueError, "public squad"):

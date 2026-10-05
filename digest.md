@@ -1,5 +1,5 @@
 # #club-football FPL Brief
-_Snapshot 2026-09-26T06:06:56.803628+00:00 · squad snapshot GW5_
+_Snapshot 2026-10-05T05:22:50.089670+00:00 · squad snapshot GW5_
 
 ## Freshness and deadline
 - Current GW: 5
@@ -22,6 +22,7 @@ _Snapshot 2026-09-26T06:06:56.803628+00:00 · squad snapshot GW5_
 | Player | Status | Chance | Updated | FPL news |
 |---|---|---|---|---|
 | João Pedro | doubtful | 75% | 2026-09-16T19:00:09.919929Z | Knee injury - 75% chance of playing |
+| Van Hecke | doubtful | 75% | 2026-09-30T16:00:09.552205Z | Foot injury - 75% chance of playing |
 
 ## Rival comparison
 | Rival | Rank | Pts | Shared players | Snapshot |
@@ -45,7 +46,7 @@ _Snapshot 2026-09-26T06:06:56.803628+00:00 · squad snapshot GW5_
 | Van Hecke | TOT | 2 | £4.9m |  |
 | Calafiori | ARS | 2 | £5.8m |  |
 | Gibbs-White | NFO | 3 | £8.0m |  |
-| Szoboszlai | LIV | 3 | £7.0m |  |
+| Szoboszlai | LIV | 3 | £6.9m |  |
 | Cherki | MCI | 3 | £7.8m |  |
 | Rogers | CHE | 3 | £7.7m | VC |
 | Haaland | MCI | 4 | £15.6m | C |
@@ -53,7 +54,7 @@ _Snapshot 2026-09-26T06:06:56.803628+00:00 · squad snapshot GW5_
 | Dubravka | TOT | 1 | £4.0m |  |
 | João Pedro | CHE | 4 | £7.7m |  |
 | De Cuyper | BHA | 2 | £5.0m |  |
-| Groß | BHA | 3 | £5.8m |  |
+| Groß | BHA | 3 | £5.9m |  |
 
 ## Six-gameweek fixture horizon
 - GW6: ARS (FDR 3) v LEE (FDR 5); AVL (FDR 3) v BRE (FDR 3); CHE (FDR 3) v BOU (FDR 4); SUN (FDR 3) v BHA (FDR 3); MUN (FDR 2) v TOT (FDR 4); CRY (FDR 3) v NFO (FDR 3); LIV (FDR 4) v MCI (FDR 4); COV (FDR 3) v NEW (FDR 2)

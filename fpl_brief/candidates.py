@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from . import projection
 from .decision import parse_time, snapshot_freshness
 
 
@@ -78,6 +79,10 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         if player:
             team_counts[player.get("team")] = team_counts.get(player.get("team"), 0) + 1
     difficulties = fixture_difficulties(snapshot)
+    projected = projection.build(snapshot, catalog)
+    def horizon(player_id):
+        row = projected["players"].get(player_id) or {}
+        return {"xp_6": row.get("xp_6"), "xp_6_decayed": row.get("xp_6_decayed")}
     candidates = []
     for player in players.values():
         if player["id"] in owned_ids or player.get("element_type") != outgoing.get("element_type"):
@@ -92,14 +97,16 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
             "ownership": player.get("selected_by_percent"),
             "net_transfers": (player["transfers_in_event"] - player["transfers_out_event"]) if isinstance(player.get("transfers_in_event"), int) and isinstance(player.get("transfers_out_event"), int) else None,
             "fixture_difficulty_average": difficulties.get(player.get("team")), "availability": "available",
+            **horizon(player["id"]),
         })
     candidates.sort(key=lambda player: (-(player["xgi_per_90"] or 0), -player["minutes"], player["fixture_difficulty_average"] if player["fixture_difficulty_average"] is not None else 99, player["name"] or ""))
     return {
-        "outgoing": {"id": outgoing["id"], "name": outgoing.get("web_name"), "position": outgoing.get("element_type"), "price": outgoing.get("now_cost"), "selling_price": selling_price},
+        "outgoing": {"id": outgoing["id"], "name": outgoing.get("web_name"), "position": outgoing.get("element_type"), "price": outgoing.get("now_cost"), "selling_price": selling_price, **horizon(outgoing["id"])},
         "budget": budget,
         "filters": {"same_position": True, "within_budget": True, "team_limit": 3, "availability": "available only", "minimum_minutes": minimum_minutes},
         "candidates": candidates,
-        "method": "Rows are filtered for legal replacements, then shown by xGI per 90, minutes, and fixture difficulty. This is not a points forecast.",
+        "method": "Rows are filtered for legal replacements, then shown by xGI per 90, minutes, and fixture difficulty. Next 6 GWs is an estimate, not a forecast.",
+        "projection": {"gameweeks": projected["gameweeks"], "ratings_fitted": projected["ratings_fitted"], "method": projected["method"]},
         "budget_source": "account" if account else "public",
-        "caveats": [budget_source, "Fixture difficulty is the average published FDR across the stored horizon."],
+        "caveats": [budget_source, "Fixture difficulty is the average published FDR across the stored horizon.", *projected["caveats"]],
     }

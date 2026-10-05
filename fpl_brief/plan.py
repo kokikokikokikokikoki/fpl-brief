@@ -6,7 +6,7 @@ transfers and per-transfer cost. Nothing here contacts FPL or makes a transfer.
 
 import copy
 
-from . import lineup
+from . import lineup, projection
 
 MAX_TRANSFERS = 3
 CLUB_LIMIT = 3
@@ -91,11 +91,18 @@ def build(snapshot, catalog, private, freshness, pairs, now=None):
     if planned.get("state") != "ready" or base.get("state") != "ready":
         return invalid((planned if planned.get("state") != "ready" else base).get("reason", "The lineup cannot be built."))
     xi_delta = round(planned["xi_estimate_total"] - base["xi_estimate_total"], 2)
+    projected = projection.build(snapshot, catalog)
+    horizon_before = projection.squad_horizon(projected["players"], players, owned)
+    horizon_after = projection.squad_horizon(projected["players"], players, new_squad)
     return {"state": "ready", "lineup": planned, "summary": {
         "transfers": [{"out": {"id": out, "name": players[out].get("web_name"), "selling_price": prices[out]["selling_price"]},
                        "in": {"id": incoming, "name": players[incoming].get("web_name"), "price": players[incoming].get("now_cost")}}
                       for out, incoming in pairs],
         "budget_left": budget_left, "free_transfers": free, "paid_transfers": paid, "hit_points": hit_points,
         "xi_delta": xi_delta, "net_delta": round(xi_delta - hit_points, 2),
-        "method": "Next-gameweek FPL estimate only (ep_next), minus any hit. Longer-term value is not modelled.",
+        "horizon_delta": round(horizon_after - horizon_before - hit_points, 2), "horizon_gameweeks": projected["gameweeks"],
+        "method": ("Next GW: the best XI's FPL estimate (ep_next) with and without the moves, minus any hit. "
+                   f"Next {len(projected['gameweeks'])} GWs: an estimate, not a forecast. Each week's best XI from ep_next re-weighted by a "
+                   f"fixture model, later weeks weighted {projection.DECAY} per week, minus any hit once. No captain and no later transfers."
+                   + (" " + " ".join(projected["caveats"]) if projected["caveats"] else "")),
     }}

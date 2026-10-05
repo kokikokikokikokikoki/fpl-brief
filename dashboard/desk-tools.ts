@@ -63,14 +63,17 @@ interface Candidate {
   xgi_per_90?: string | number | null;
   fixture_difficulty_average?: string | number | null;
   availability: string;
+  xp_6?: number | null;
+  xp_6_decayed?: number | null;
 }
 
 interface CandidateResponse {
   candidates: Candidate[];
   budget: number;
   budget_source: "account" | "public";
-  outgoing: { name?: string; selling_price: number };
+  outgoing: { name?: string; selling_price: number; xp_6?: number | null };
   method: string;
+  projection?: { gameweeks: number[]; ratings_fitted: boolean; method: string };
   caveats: string[];
 }
 
@@ -222,14 +225,18 @@ export function mountDeskTools(runtime: DashboardRuntime): {
     const minimum = required<HTMLSelectElement>("#candidate-minutes", view).value;
     const output = required<HTMLElement>("#candidate-output", view);
     output.innerHTML = "<p>Finding legal replacements.</p>";
+    const sortBy = required<HTMLSelectElement>("#candidate-sort", view).value;
     try {
       const result = await requestJson<CandidateResponse>(`/api/candidates?replace_id=${encodeURIComponent(replaceId)}&minimum_minutes=${encodeURIComponent(minimum)}`);
-      const rows = result.candidates.length
-        ? result.candidates.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
-        : '<tr><td colspan="9">No players meet every selected filter.</td></tr>';
+      const shown = sortBy === "xp6" ? [...result.candidates].sort((a, b) => (b.xp_6_decayed ?? -1) - (a.xp_6_decayed ?? -1)) : result.candidates;
+      const rows = shown.length
+        ? shown.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td title="${escapeHtml(typeof player.xp_6 === "number" ? `Undecayed: ${player.xp_6}` : "")}">${escapeHtml(player.xp_6_decayed ?? "-")}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
+        : '<tr><td colspan="10">No players meet every selected filter.</td></tr>';
+      const horizonCount = result.projection?.gameweeks?.length || 6;
       const money = (tenths: number): string => `£${(tenths / 10).toFixed(1)}m`;
-      const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).</p>`;
-      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p><p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).${typeof result.outgoing.xp_6 === "number" ? ` ${escapeHtml(result.outgoing.name ?? "Outgoing player")} projects ${escapeHtml(result.outgoing.xp_6)} over the next ${escapeHtml(horizonCount)} GWs (estimate).` : ""}</p>`;
+      const horizonNote = result.projection ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs, decayed 0.85 per week: ${escapeHtml(result.projection.method)}</p>` : "";
+      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p>${horizonNote}<p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Next ${escapeHtml(horizonCount)} GWs (decayed)</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       output.querySelectorAll<HTMLButtonElement>("[data-try-in]").forEach((button) => {
         button.onclick = () => {
           const problem = runtime.planTransfer?.(Number(replaceId), Number(button.dataset.tryIn));
@@ -244,12 +251,13 @@ export function mountDeskTools(runtime: DashboardRuntime): {
   function openLens(replacePlayerId?: number): void {
     runtime.activate("candidates");
     const view = required<HTMLElement>("#candidates");
-    view.innerHTML = `<article class="panel"><div class="panel-head"><div><h2>Candidate Lens</h2><p>Legal same-position replacements only. It ranks visible inputs, not predicted points.</p></div></div><div class="lens-controls"><label>Replace<select id="candidate-replace">${squadOptions()}</select></label><label>Minimum minutes<select id="candidate-minutes"><option value="0">Any minutes</option><option value="450">450+</option><option value="900">900+</option></select></label><button id="candidate-run" class="button-primary">Find candidates</button></div><div id="candidate-output" class="lens-output"><p class="small">Budget uses the outgoing player's selling price plus bank from your captured FPL account data. Without a fresh capture, Candidate Lens stays blocked rather than guessing.</p></div></article>`;
+    view.innerHTML = `<article class="panel"><div class="panel-head"><div><h2>Candidate Lens</h2><p>Legal same-position replacements only. It ranks visible inputs; "Next 6 GWs" is an estimate, not a forecast.</p></div></div><div class="lens-controls"><label>Replace<select id="candidate-replace">${squadOptions()}</select></label><label>Minimum minutes<select id="candidate-minutes"><option value="0">Any minutes</option><option value="450">450+</option><option value="900">900+</option></select></label><label>Sort by<select id="candidate-sort"><option value="xgi">xGI per 90</option><option value="xp6">Next 6 GWs (estimate)</option></select></label><button id="candidate-run" class="button-primary">Find candidates</button></div><div id="candidate-output" class="lens-output"><p class="small">Budget uses the outgoing player's selling price plus bank from your captured FPL account data. Without a fresh capture, Candidate Lens stays blocked rather than guessing.</p></div></article>`;
     if (replacePlayerId !== undefined) {
       const select = required<HTMLSelectElement>("#candidate-replace", view);
       if (Array.from(select.options).some((option) => option.value === String(replacePlayerId))) select.value = String(replacePlayerId);
     }
     required<HTMLButtonElement>("#candidate-run", view).addEventListener("click", () => { void runLens(); });
+    required<HTMLSelectElement>("#candidate-sort", view).addEventListener("change", () => { if (view.querySelector("#candidate-output table")) void runLens(); });
   }
 
   document.addEventListener("click", (event: MouseEvent) => {

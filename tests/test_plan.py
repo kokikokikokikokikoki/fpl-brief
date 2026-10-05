@@ -70,6 +70,23 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(summary["net_delta"], summary["xi_delta"])
         self.assertIn("P20", lineup["changes"]["start"])
 
+    def test_horizon_delta_uses_six_week_projection_minus_hits(self):
+        snapshot, catalog, private = build(bank=50)
+        result = plan.build(snapshot, catalog, private, FRESH, [(11, 20)], NOW)
+        summary = result["summary"]
+        # One stored gameweek and no team results: the projection equals ep_next for that week.
+        self.assertEqual(summary["horizon_gameweeks"], [6])
+        self.assertEqual(summary["horizon_delta"], 8.0)
+        self.assertIn("estimate, not a forecast", summary["method"])
+        self.assertIn("no team results", summary["method"])
+        snapshot["fixtures"]["events"]["7"] = [{"team_h": 6, "team_a": 1}, {"team_h": 2, "team_a": 6}, {"team_h": 4, "team_a": 5}]
+        double = plan.build(snapshot, catalog, private, FRESH, [(11, 20)], NOW)["summary"]
+        self.assertEqual(double["horizon_gameweeks"], [6, 7])
+        self.assertEqual(double["xi_delta"], summary["xi_delta"])
+        self.assertGreater(double["horizon_delta"], summary["horizon_delta"])
+        hit = plan.build(snapshot, catalog, {**private, "free_transfers": 0}, FRESH, [(11, 20)], NOW)["summary"]
+        self.assertEqual(hit["horizon_delta"], round(double["horizon_delta"] - 4, 2))
+
     def test_extra_transfers_cost_hits_and_unlimited_costs_none(self):
         result = self.run_plan([(11, 20), (15, 24)], bank=50)
         self.assertEqual(result["state"], "ready", result.get("reason"))
