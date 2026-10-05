@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from . import projection
+from . import prices, projection
 from .decision import parse_time, snapshot_freshness
 
 
@@ -93,6 +93,13 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
                 "xp_6_own": ours.get("xp_6"), "xp_6_own_decayed": ours.get("xp_6_decayed"),
                 "own_breakdown": ours.get("breakdown_total"), "own_weekly": ours.get("xp"), "own_flags": ours.get("flags") or [],
                 "models_differ": both and abs(row["xp_6"] - ours["xp_6"]) / weeks > DIFFER_PER_GW}
+    window = prices.updates_before(current, deadline)
+    def price_outlook(player, selling=False):
+        view = prices.marker(player, window, deadline)
+        purchase = ((account or {}).get("prices", {}).get(player["id"]) or {}).get("purchase_price")
+        note = prices.sell_note(player, purchase, window, deadline) if selling else prices.buy_note(player, window, deadline)
+        view["note"] = note["text"] if note else None
+        return view
     candidates = []
     for player in players.values():
         if player["id"] in owned_ids or player.get("element_type") != outgoing.get("element_type"):
@@ -107,11 +114,12 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
             "ownership": player.get("selected_by_percent"),
             "net_transfers": (player["transfers_in_event"] - player["transfers_out_event"]) if isinstance(player.get("transfers_in_event"), int) and isinstance(player.get("transfers_out_event"), int) else None,
             "fixture_difficulty_average": difficulties.get(player.get("team")), "availability": "available",
-            **horizon(player["id"]),
+            **horizon(player["id"]), "price_outlook": price_outlook(player),
         })
     candidates.sort(key=lambda player: (-(player["xgi_per_90"] or 0), -player["minutes"], player["fixture_difficulty_average"] if player["fixture_difficulty_average"] is not None else 99, player["name"] or ""))
     return {
-        "outgoing": {"id": outgoing["id"], "name": outgoing.get("web_name"), "position": outgoing.get("element_type"), "price": outgoing.get("now_cost"), "selling_price": selling_price, **horizon(outgoing["id"])},
+        "outgoing": {"id": outgoing["id"], "name": outgoing.get("web_name"), "position": outgoing.get("element_type"), "price": outgoing.get("now_cost"), "selling_price": selling_price, **horizon(outgoing["id"]),
+                     "price_outlook": price_outlook(outgoing, selling=True)},
         "budget": budget,
         "filters": {"same_position": True, "within_budget": True, "team_limit": 3, "availability": "available only", "minimum_minutes": minimum_minutes},
         "candidates": candidates,
@@ -120,5 +128,6 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         "projection_own": {"available": own["available"], "method": own["method"], "differ_per_gw": DIFFER_PER_GW,
                            "caveats": [caveat for caveat in own["caveats"] if caveat not in projected["caveats"]]},
         "budget_source": "account" if account else "public",
+        "price_method": f"▲ and ▼ mark a predicted £0.1m price rise or fall: {prices.GUIDE} Prices never change the ranking.",
         "caveats": [budget_source, "Fixture difficulty is the average published FDR across the stored horizon.", *projected["caveats"]],
     }

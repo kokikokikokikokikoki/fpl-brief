@@ -71,12 +71,13 @@ export function renderRivalMaths(data: RivalMathsData | null, loading: boolean, 
     <h3 class="lt-h">Title odds (estimate)</h3>
     <div class="rm-bar" role="img" aria-label="${esc(`Estimated title odds: ${odds.map((row) => `${row.name} ${pct(row.p)}`).join(", ")}`)}">${bar}</div>
     <ul class="rm-legend">${legend}</ul>
-    <p class="fine">You: estimated ${esc(pct(data.you.p_first))} to win the league; expected final rank ${esc(num(data.you.expected_rank))} among these ${esc(data.rivals_compared + 1)} managers.</p>
+    <p class="fine">You: estimated ${esc(pct(data.you.p_first))} to win the league; expected final rank ${esc(num(data.you.expected_rank))} among these ${esc(data.rivals_compared + 1)} managers. Rivals' own odds are calibrated only against you, not against each other.</p>
     <h3 class="lt-h">Per rival</h3>
     <div class="table-wrap"><table class="rm-table"><thead><tr><th>#</th><th>Manager</th><th>Gap</th><th>P(finish ahead)<span class="sub">estimate</span></th><th>GW${esc(gw)} swing<span class="sub">for you · against you</span></th><th>Chips left</th></tr></thead><tbody>${rivalRows}</tbody></table></div>
     <p class="fine">Against the field (EO): expected swing <strong class="${tone(data.field_swing.swing)}">${esc(signed(data.field_swing.swing, 2))}</strong>. For you: ${driverList(data.field_swing.drivers.for_you, "nothing")} Against you: ${driverList(data.field_swing.drivers.against_you, "nothing")}</p>
     <h3 class="lt-h">Captain table</h3>
     <div class="table-wrap"><table class="rm-table"><thead><tr><th scope="col">Captain</th><th scope="col">xP</th><th scope="col">EO</th><th scope="col">vs field<span class="sub">expected</span></th><th scope="col">Beats field's captains<span class="sub">estimate</span></th>${captainHead}</tr></thead><tbody>${captainRows}</tbody></table></div>
+    <p class="fine">The vice-captain isn't modelled: the draws never model a captain playing 0 minutes.</p>
     <p class="fine">Differential option is the community heuristic, not a derived rule: the favourite's EO is above 75%, this one's is below 50%, and the xP gap is under 1.5.</p>
     <div class="lt-grid rm-grid">
       <section><h3 class="lt-h">Your shield</h3><p class="fine">High-EO players you own (EO 50%+). They keep pace with the field.</p>${playerList(data.shield, "Nothing widely owned.")}</section>

@@ -201,6 +201,28 @@ def write_model_data(extras, boot, snapshot, root="data"):
     write_json_atomic(f"{root}/ep_log.json", json.dumps(log, separators=(",", ":"), ensure_ascii=False) + "\n")
 
 
+# The compact catalog keeps only these bootstrap-static element fields. The price_change_* fields are
+# FPL's own price-change predictor (new in 2026/27): price_change_percent is a decimal string (progress to
+# the threshold, above 100 or below -100 means a change is expected at the next update),
+# price_change_hourly_rate an int, price_change_projections a list of {offset 0-2, projected_percent
+# (string), likelihood (int, -5..5, negative for falls)}, price_change_locked_until null or a time, and
+# price_change_calibrating a bool. A field FPL stops sending is stored as null.
+CATALOG_FIELDS = (
+    "id", "web_name", "team", "element_type", "now_cost", "form",
+    "total_points", "selected_by_percent", "status",
+    "chance_of_playing_next_round", "news", "news_added", "ep_next",
+    "minutes", "goals_scored", "assists", "expected_goals",
+    "expected_assists", "expected_goal_involvements",
+    "transfers_in_event", "transfers_out_event", "cost_change_event", "cost_change_start",
+    "price_change_percent", "price_change_hourly_rate", "price_change_projections",
+    "price_change_locked_until", "price_change_calibrating",
+)
+
+
+def catalog_players(boot):
+    return [{key: player.get(key) for key in CATALOG_FIELDS} for player in boot.get("elements", []) if isinstance(player, dict)]
+
+
 def main():
     config = load_config()
     previous = read_json("data/latest.json", default=None)
@@ -216,14 +238,7 @@ def main():
     write_json_atomic("data/catalog.json", {
         "schema_version": 1,
         "generated_at_utc": snapshot["generated_at_utc"],
-        "players": [{key: player.get(key) for key in (
-            "id", "web_name", "team", "element_type", "now_cost", "form",
-            "total_points", "selected_by_percent", "status",
-            "chance_of_playing_next_round", "news", "news_added", "ep_next",
-            "minutes", "goals_scored", "assists", "expected_goals",
-            "expected_assists", "expected_goal_involvements",
-            "transfers_in_event", "transfers_out_event", "cost_change_event", "cost_change_start",
-        )} for player in boot.get("elements", [])],
+        "players": catalog_players(boot),
         "teams": [{key: team.get(key) for key in ("id", "name", "short_name", "strength")} for team in boot.get("teams", [])],
     })
     research = evidence_status(load_packet(), config["research_stale_after_hours"])

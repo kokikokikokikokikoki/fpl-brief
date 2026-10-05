@@ -1,0 +1,10 @@
+/* Prices strip and price markers (Tactics Board world, see DESIGN.md). */
+.prices-panel > summary { cursor: pointer; font-weight: 700; }
+.prices-table td, .prices-table th { font-variant-numeric: tabular-nums; vertical-align: top; }
+.prices-table .sub { display: block; font-size: 12px; color: var(--ink-soft); }
+.price-mark { white-space: nowrap; font-size: 13px; color: var(--ink-soft); }
+.price-rise { color: var(--marker-green); font-weight: 700; }
+.price-fall { color: var(--marker-red); font-weight: 700; }
+.price-soon { text-decoration: underline dotted; }
+.price-notes { margin: 6px 0; padding-left: 18px; font-size: 13px; color: var(--ink-soft); }
+.price-note { display: block; }

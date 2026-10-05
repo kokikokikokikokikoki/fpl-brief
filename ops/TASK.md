@@ -1,4 +1,63 @@
-# Active task — Stage 4: rival maths (effective ownership, captaincy vs rivals, finish odds)
+# Active task — Stage 5: price awareness (selling prices and FPL's price-change predictor)
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
+**Status:** APPROVED (review PASS 2026-10-05; post-review text polish applied, full suite 310 OK; local only)
+**Date:** 2026-10-05
+**Overseer request:** "after stage 3 do stage 4 and 5" (2026-10-05). Design source: `research/fpl-maths.md` §5. New in 2026/27, `bootstrap-static` elements carry FPL's official price-change predictor fields:
+- `price_change_percent`
+- `price_change_hourly_rate`
+- `price_change_projections` (offset 0–2, with `projected_percent` and `likelihood`)
+- `price_change_locked_until`
+- `price_change_calibrating`
+
+The catalog whitelist (`fetch_fpl.py` ~line 220) drops them today.
+
+## Required implementation
+
+1. **Data.**
+   - Add the `price_change_*` fields to the catalog whitelist. First confirm their exact names and shapes with one read-only `bootstrap-static` fetch, and document them.
+   - The catalog stays compact: keep only the fields listed here.
+   - Missing fields (older catalogs, or FPL removing them) must never break anything.
+2. **`fpl_brief/prices.py` (new, pure functions).**
+   - **`selling_price(bought, now)`:** `bought + floor((now − bought)/2)` when `now > bought`, else `now`, in £0.1m integers. Cross-check it against the captured account selling prices when usable, and report any mismatch.
+   - **`outlook(player)`:** returns `rise`, `fall`, `steady` or `unknown`, from `price_change_percent` (above 100 means expected at the next update) and the projections. It also returns the likelihood, the next possible change time and whether FPL is still calibrating. All of it is labelled "FPL's own predictor, a guide only".
+   - **Squad view:** for each owned player, give the current price, purchase price, selling price, the "profit locked in", and what one more rise or fall would do to the selling price. Note that a single +0.1 rise earns nothing until there's a second one.
+   - **Early-move note:** when a planned or candidate buy is predicted to rise before the deadline, or a planned sell is predicted to fall, show a one-line note. Its value is £0.1m, about 0.01 points at `itb_value` per research §5. It is shown as a note only, never as a driver.
+3. **Wiring and UI** (keep the existing style, and escape everything):
+   - **My squad view:** a compact "Prices" strip or table for the 15 owned players. It needs usable account data for selling prices, and otherwise shows public prices only, with the account-data blocked message.
+   - **Candidate lens:** a small rise/fall marker per candidate, from the outlook.
+   - **Planned-transfers strip and planner cards:** the early-move note when it applies.
+4. **Stage 4 method-text items** (from the Stage 4 review, optional items 2 and 4; text-only edits in `fpl_brief/rivals.py` and `dashboard/rival-maths.ts`):
+   - Rivals' own title odds are calibrated only against the manager.
+   - The vice-captain isn't modelled, because the draws never model a captain playing 0 minutes.
+5. **Tests (`tests/test_prices.py`):**
+   - the selling-price formula, including the floor, a fall and a single +0.1 rise;
+   - the outlook mapping, including missing fields giving `unknown` and the calibrating flag;
+   - the squad view with and without account data;
+   - the early-move note rule;
+   - the catalog whitelist keeping the new fields;
+   - node/existing-harness render checks for the markers and the strip, including escaping.
+
+## Allowed paths
+
+`fetch_fpl.py` (catalog whitelist only), `fpl_brief/prices.py`, `fpl_brief/candidates.py`, `fpl_brief/plan.py`, `fpl_brief/optimise.py` (note only), `fpl_brief/rivals.py` (method text only), `dashboard.py`, `dashboard/*.ts|css` (My squad prices strip, Candidate lens marker, planned-transfers strip, planner cards, rival-maths method text), `tests/test_prices.py`, `tests/test_fetch_fpl.py`, `tests/test_research_candidates.py`, `tests/test_plan.py`, `tests/test_dashboard.py`, `tests/*.mjs` (new or updated render checks), `README.md`, `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only).
+
+You may run the fetcher once so the catalog has the new fields. Do not commit.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs`
+
+## Constraints
+
+- Stdlib only.
+- Read-only public endpoints.
+- Price predictions are labelled as FPL's guide, never a certainty.
+- Prices never drive the optimiser's choices.
+
+---
+
+# Previous task — Stage 4: rival maths (effective ownership, captaincy vs rivals, finish odds)
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
 **Status:** APPROVED (review PASS 2026-10-05 after Supervisor rulings unifying the odds model; local only)

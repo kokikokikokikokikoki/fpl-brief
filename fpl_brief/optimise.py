@@ -438,8 +438,10 @@ def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=No
                 caveats.append(f"A suggested plan was dropped because the rule checker refused it: {checked.get('reason')}")
                 continue
             found["rules_check"] = {"state": "passed", "next_gw_estimate_delta": checked["summary"].get("net_delta")}
+            found["price_notes"] = checked["summary"].get("price_notes") or []  # shown as a note only; never part of the objective
         else:
             found["rules_check"] = {"state": "no moves next GW"}
+            found["price_notes"] = []
         found["next_gw_moves"] = [{"out": out, "in": incoming} for out, incoming in pairs]
         names = lambda pid: (players.get(pid) or {}).get("web_name") or f"Player {pid}"
         found["next_gw_action"] = ("; ".join(f"{names(out)} → {names(incoming)}" for out, incoming in pairs)

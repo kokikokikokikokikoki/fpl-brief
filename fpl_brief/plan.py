@@ -6,7 +6,8 @@ transfers and per-transfer cost. Nothing here contacts FPL or makes a transfer.
 
 import copy
 
-from . import lineup, projection
+from . import lineup, prices as price_rules, projection
+from .decision import parse_time
 
 MAX_TRANSFERS = 3
 CLUB_LIMIT = 3
@@ -105,6 +106,9 @@ def build(snapshot, catalog, private, freshness, pairs, now=None, history=None):
         "xi_delta": xi_delta, "net_delta": round(xi_delta - hit_points, 2),
         "horizon_delta": round(horizon_after - horizon_before - hit_points, 2), "horizon_gameweeks": projected["gameweeks"],
         "horizon_delta_own": own_delta,
+        # Notes only (FPL's own price predictor); they never change the estimates above.
+        "price_notes": price_rules.early_move_notes(pairs, players, private,
+                                                    parse_time((((snapshot or {}).get("events") or {}).get("next") or {}).get("deadline_time")), now),
         "method": ("Next GW: the best XI's FPL estimate (ep_next) with and without the moves, minus any hit. "
                    f"Next {len(projected['gameweeks'])} GWs: an estimate, not a forecast. Each week's best XI from ep_next re-weighted by a "
                    f"fixture model, later weeks weighted {projection.DECAY} per week, minus any hit once. No captain and no later transfers. "

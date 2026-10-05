@@ -1,3 +1,4 @@
+import type { PriceOutlook } from "./prices";
 import type { DashboardRuntime, Player, ViewId } from "./app";
 
 interface ResearchExcerpt {
@@ -70,13 +71,15 @@ interface Candidate {
   own_breakdown?: Record<string, number> | null;
   own_flags?: string[];
   models_differ?: boolean;
+  price_outlook?: PriceOutlook;
 }
 
 interface CandidateResponse {
   candidates: Candidate[];
   budget: number;
   budget_source: "account" | "public";
-  outgoing: { name?: string; selling_price: number; xp_6?: number | null; xp_6_own?: number | null };
+  outgoing: { name?: string; selling_price: number; xp_6?: number | null; xp_6_own?: number | null; price_outlook?: PriceOutlook };
+  price_method?: string;
   method: string;
   projection?: { gameweeks: number[]; ratings_fitted: boolean; method: string };
   projection_own?: { available: boolean; method: string; differ_per_gw?: number; caveats?: string[] };
@@ -254,15 +257,17 @@ export function mountDeskTools(runtime: DashboardRuntime): {
       const shown = sortBy === "xp6" ? [...result.candidates].sort((a, b) => (b.xp_6_decayed ?? -1) - (a.xp_6_decayed ?? -1))
         : sortBy === "xp6own" ? [...result.candidates].sort((a, b) => (b.xp_6_own_decayed ?? -1) - (a.xp_6_own_decayed ?? -1)) : result.candidates;
       const rows = shown.length
-        ? shown.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td title="${escapeHtml(typeof player.xp_6 === "number" ? `Undecayed: ${player.xp_6}` : "")}">${escapeHtml(player.xp_6_decayed ?? "-")}</td><td>${ownModelCell(player)}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
+        ? shown.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m ${runtime.priceMarker ? runtime.priceMarker(player.price_outlook, true) : ""}${player.price_outlook?.note ? `<span class="small price-note">${escapeHtml(player.price_outlook.note)}</span>` : ""}</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td title="${escapeHtml(typeof player.xp_6 === "number" ? `Undecayed: ${player.xp_6}` : "")}">${escapeHtml(player.xp_6_decayed ?? "-")}</td><td>${ownModelCell(player)}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
         : '<tr><td colspan="11">No players meet every selected filter.</td></tr>';
       const horizonCount = result.projection?.gameweeks?.length || 6;
       const money = (tenths: number): string => `£${(tenths / 10).toFixed(1)}m`;
       const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).${typeof result.outgoing.xp_6 === "number" ? ` ${escapeHtml(result.outgoing.name ?? "Outgoing player")} projects ${escapeHtml(result.outgoing.xp_6)} over the next ${escapeHtml(horizonCount)} GWs (FPL-based estimate)${typeof result.outgoing.xp_6_own === "number" ? `, ${escapeHtml(result.outgoing.xp_6_own)} on our model` : ""}.` : ""}</p>`;
+      const outgoingNote = result.outgoing.price_outlook?.note ? `<p class="small price-note">${escapeHtml(result.outgoing.price_outlook.note)}</p>` : "";
+      const priceNote = result.price_method ? `<p class="small">${escapeHtml(result.price_method)}</p>` : "";
       const horizonNote = result.projection ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs (FPL-based), decayed 0.85 per week: ${escapeHtml(result.projection.method)}</p>` : "";
       const own = result.projection_own;
       const ownNote = own ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs (our model), shown side by side; FPL-based stays the default. ${own.available ? escapeHtml(own.method) : "Our model is unavailable until player history is collected."} ≠ marks players where the two differ by more than ${escapeHtml(own.differ_per_gw ?? 2)} points per GW on average. Click a value for its breakdown.${(own.caveats ?? []).length ? ` ${(own.caveats ?? []).map(escapeHtml).join(" ")}` : ""}</p>` : "";
-      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p>${horizonNote}${ownNote}<p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Next ${escapeHtml(horizonCount)} GWs (FPL-based, decayed)</th><th>Next ${escapeHtml(horizonCount)} GWs (our model, decayed)</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      output.innerHTML = `${budget}${outgoingNote}${priceNote}<p class="method">${escapeHtml(result.method)}</p>${horizonNote}${ownNote}<p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Next ${escapeHtml(horizonCount)} GWs (FPL-based, decayed)</th><th>Next ${escapeHtml(horizonCount)} GWs (our model, decayed)</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       output.querySelectorAll<HTMLButtonElement>("[data-try-in]").forEach((button) => {
         button.onclick = () => {
           const problem = runtime.planTransfer?.(Number(replaceId), Number(button.dataset.tryIn));

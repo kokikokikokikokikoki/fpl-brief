@@ -28,6 +28,8 @@ export interface PlannerPlan {
   status?: string;
   next_gw_moves: PlannedTransfer[];
   next_gw_action?: string;
+  /** Early-move notes for the next-GW moves (FPL's own price predictor); notes only, never part of the ranking. */
+  price_notes?: Array<{ kind: string; text: string }>;
 }
 export type PlannerResult =
   | { state: "ready"; model: string; model_label: string; gameweeks: number[]; hold: { horizon_xp: number; weeks: PlannerWeek[] }; plans: PlannerPlan[]; method: string; caveats: string[]; solve_seconds?: number }
@@ -71,6 +73,11 @@ function scoreLine(plan: PlannerPlan): string {
   return `<p class="small planner-score">Planner score vs holding: <strong>${esc(signed2(plan.objective_gain))}</strong>${listed ? ` (${esc(listed)})` : ""}</p>`;
 }
 
+function priceNotes(notes: PlannerPlan["price_notes"]): string {
+  const shown = (notes ?? []).filter((note) => note && typeof note.text === "string" && note.text);
+  return shown.length ? `<ul class="price-notes">${shown.map((note) => `<li>${esc(note.text)}</li>`).join("")}</ul>` : "";
+}
+
 function planCard(plan: PlannerPlan, gameweeks: number[]): string {
   const first = gameweeks[0];
   const span = gameweeks.length ? `GW${gameweeks[0]}–${gameweeks[gameweeks.length - 1]}` : "the horizon";
@@ -80,7 +87,7 @@ function planCard(plan: PlannerPlan, gameweeks: number[]): string {
     : `<p class="small">No moves in GW${esc(first)}: this plan rolls the free transfer now.</p>`;
   const laterNote = gameweeks.length > 1 ? `<p class="small">${esc(`Moves after GW${first} are indicative — re-run the planner each week.`)}</p>` : "";
   const timing = plan.status === "time_limit" ? '<p class="small plan-bad">Stopped at the time limit: best plan found, not proven best.</p>' : "";
-  return `<article class="planner-card" aria-label="Plan ${esc(plan.rank)}"><header><h3>Plan ${esc(plan.rank)} · GW${esc(first)}: ${esc(plan.next_gw_action ?? (moves.length ? `${moves.length} move(s)` : "Roll the free transfer (no moves)"))}</h3>${plan.most_points ? '<p class="planner-most">Most estimated points</p>' : ""}<p class="planner-gain">Points gain vs holding: <strong>${esc(signed(plan.gain))}</strong> over ${esc(span)} <span class="small">(XI and captain, decayed estimate, after hits)</span></p>${scoreLine(plan)}<p class="small">Hits: ${plan.hit_points ? `<span class="plan-bad">−${esc(plan.hit_points)}</span>` : "none"} · horizon estimate ${esc(plan.horizon_xp)}${typeof plan.gain_undecayed === "number" ? ` · undecayed gain ${esc(signed(plan.gain_undecayed))}` : ""}</p></header>${timing}<div class="table-wrap"><table class="planner-weeks"><thead><tr><th>GW</th><th>Moves (out → in, prices)</th><th>FTs</th><th>Hits</th><th>Bank after</th><th>XI estimate</th><th>Captain</th></tr></thead><tbody>${weekRows(plan)}</tbody></table></div>${laterNote}${tryButton}</article>`;
+  return `<article class="planner-card" aria-label="Plan ${esc(plan.rank)}"><header><h3>Plan ${esc(plan.rank)} · GW${esc(first)}: ${esc(plan.next_gw_action ?? (moves.length ? `${moves.length} move(s)` : "Roll the free transfer (no moves)"))}</h3>${plan.most_points ? '<p class="planner-most">Most estimated points</p>' : ""}<p class="planner-gain">Points gain vs holding: <strong>${esc(signed(plan.gain))}</strong> over ${esc(span)} <span class="small">(XI and captain, decayed estimate, after hits)</span></p>${scoreLine(plan)}<p class="small">Hits: ${plan.hit_points ? `<span class="plan-bad">−${esc(plan.hit_points)}</span>` : "none"} · horizon estimate ${esc(plan.horizon_xp)}${typeof plan.gain_undecayed === "number" ? ` · undecayed gain ${esc(signed(plan.gain_undecayed))}` : ""}</p></header>${timing}<div class="table-wrap"><table class="planner-weeks"><thead><tr><th>GW</th><th>Moves (out → in, prices)</th><th>FTs</th><th>Hits</th><th>Bank after</th><th>XI estimate</th><th>Captain</th></tr></thead><tbody>${weekRows(plan)}</tbody></table></div>${priceNotes(plan.price_notes)}${laterNote}${tryButton}</article>`;
 }
 
 export function renderPlanner(view: PlannerView): string {

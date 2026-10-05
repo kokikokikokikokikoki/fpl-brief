@@ -28,6 +28,7 @@ from fpl_brief import matchday
 from fpl_brief import league as league_data
 from fpl_brief import optimise as transfer_optimiser
 from fpl_brief import plan as transfer_plan
+from fpl_brief import prices as price_view
 from fpl_brief import private_team
 from fpl_brief import rivals as rival_maths
 from fpl_brief import web_session
@@ -897,6 +898,7 @@ class Handler(SimpleHTTPRequestHandler):
             team_decision = build_team_decision(snapshot, catalog, research, decision["snapshot_status"])
             return self.send_json({"snapshot": snapshot, "catalog": catalog, "plans": load_plans(snapshot), "config": config,
                                    "private_team": private,
+                                   "prices": price_view.squad_view(snapshot, catalog, private),
                                    "lineup": lineup_helper.suggest(snapshot, catalog, private, decision["snapshot_status"]),
                                    "snapshot_status": decision["snapshot_status"], "decision": decision, "research": research,
                                    "team_decision": team_decision,

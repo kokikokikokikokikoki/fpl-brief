@@ -737,6 +737,10 @@ class PrivateTeamDashboardTests(unittest.TestCase):
                 server.server_close()
         self.assertEqual(payload["private_team"]["state"], "missing")
         self.assertFalse(payload["private_team"]["usable"])
+        # Prices strip: public prices only, with the account-data message, never selling prices.
+        self.assertEqual(payload["prices"]["state"], "public")
+        self.assertIn("fresh capture", payload["prices"]["message"])
+        self.assertTrue(all(row["selling"] is None for row in payload["prices"]["players"]))
         self.assertNotIn("confirmed_inputs", payload["decision"])
         self.assertTrue(any(item.startswith("Free transfers and selling prices") for item in payload["decision"]["unconfirmed_inputs"]))
 

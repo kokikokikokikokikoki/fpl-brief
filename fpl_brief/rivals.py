@@ -473,5 +473,7 @@ def build(snapshot, catalog, gathered, private=None, history=None, sims=SIMS, se
                    f"drawn from their mean shrunk to the league mean ({MEAN_SHRINK_GWS} pseudo-GWs) with its uncertainty; each remaining week reuses one "
                    f"past gameweek for everyone at once, plus random noise sized so each weekly gap with you has the spread σ_week "
                    f"(shrunk to the pooled value, {SD_SHRINK_GWS} pseudo-GWs). Cross-check: Φ((gap + edge)/√(n·σ_week² + n²·mean uncertainty)). "
+                   f"The noise is sized only against you, so rivals' own title odds are calibrated only against you, not against each other. "
+                   f"The vice-captain isn't modelled, because the draws never model a captain playing 0 minutes. "
                    f"Approximation: ignores chips left and transfer plans."),
     }

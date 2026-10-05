@@ -16,6 +16,8 @@ import { MAX_PLANNED, addTransfer, loadPlan, planQuery, renderPlanStrip, savePla
 import "./tactics-board.css";
 import "./lineup-helper.css";
 import { mountPlanner } from "./transfer-planner";
+import { priceMarker, renderPricesStrip, type PriceOutlook, type PricesData } from "./prices";
+import "./prices.css";
 import "./transfer-planner.css";
 import { renderPrivateTeamPanel, renderTeamDecisionDesk } from "./team-decision-desk";
 import "@fontsource/barlow/400.css";
@@ -152,6 +154,7 @@ export interface DashboardData {
   };
   team_decision: TeamDecisionData;
   private_team?: PrivateTeamData;
+  prices?: PricesData;
   lineup?: LineupData;
   config?: { team_id?: number };
   auth?: { enabled: boolean };
@@ -193,6 +196,8 @@ export interface DashboardRuntime {
   replacePlan?(moves: PlannedTransfer[]): string | null;
   /** Render the transfer planner panel into the Candidate lens view. */
   mountPlanner?(root: HTMLElement): void;
+  /** Small rise/fall marker from FPL's price predictor (a guide only). */
+  priceMarker?(outlook: PriceOutlook | null | undefined, hideSteady?: boolean): string;
 }
 
 interface StorageLike {
@@ -414,6 +419,7 @@ function renderSquad(): void {
   const names = new Map(data.catalog.players.map((player) => [player.id, player.web_name ?? `Player ${player.id}`]));
   target.innerHTML = renderPlanStrip(plan, result, names) + renderTacticsBoard(lineup, data.private_team, (id) => crowdNote(data.crowd?.state === "ready" ? data.crowd.squad[String(id)] : undefined))
     + `<details class="panel lineup-list"><summary>Show this week's lineup as a list, with every reason</summary>${renderLineupHelper(lineup, data.team_decision?.players ?? [])}</details>`
+    + renderPricesStrip(data.prices)
     + `<details class="panel saved-squad"><summary>Your saved squad from the public snapshot (last deadline)</summary>` + renderSquadFormation({
     picks,
     players: data.catalog.players,
@@ -677,7 +683,7 @@ async function loadDashboard(): Promise<void> {
   }
 }
 
-const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, planTransfer, replacePlan, mountPlanner: (root) => mountPlanner(root, { replacePlan, status }), kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
+const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, planTransfer, replacePlan, mountPlanner: (root) => mountPlanner(root, { replacePlan, status }), priceMarker, kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
 deskTools = mountDeskTools(runtime);
 refreshDecisionStates = mountDecisionStates(() => state.data);
 
