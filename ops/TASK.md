@@ -1,4 +1,83 @@
-# Active task — Stage 1 projections: six-gameweek expected points from `ep_next` and fixtures
+# Active task — Stage 2: our own expected-points model, with a backtest
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort). Orchestration by the main session.
+**Status:** APPROVED (review PASS 2026-10-05 with calibration check; UI checked in the browser by the orchestrator; local only, release needs Overseer approval)
+**Date:** 2026-10-05
+**Overseer request:** "start stage 2" (2026-10-05). Design source: `research/fpl-maths.md` §0 (2026/27 scoring), §1 (player model, minutes model, "Putting it together"), §2 (shrinkage defaults) and §6 Stage 2.
+
+## Why
+
+Stage 1 re-weights FPL's `ep_next`, which:
+- is a 30-day form average;
+- covers only the next week;
+- carries a player's current doubt into all six weeks (accepted limitation, Stage 1 review).
+
+Stage 2 builds each player's points from their parts, so we can see why a number is what it is and stop depending on FPL's unexplained estimate.
+
+## Required implementation
+
+1. **Data: per-player gameweek history (collector).**
+   - `collect.py` already calls `event/{gw}/live/` for each finished GW. From the same responses, also keep a compact per-player row for every player with minutes > 0: `{gw, id, team, minutes, starts, xg, xa, goals, assists, cs, gc, saves, defcon_points, bonus, yellow, red, total_points}`. Use what the live `stats` object actually provides, and document any field that is missing.
+   - **Storage:** write it to a separate file, `data/player_history.json`, not into `latest.json`, so the snapshot stays small. Keep keys short. At season end it should be at most about 2 MB.
+   - **No new endpoints** and no per-player `element-summary` calls.
+   - **ep_next log:** also log the current `ep_next` for every player, keyed by the upcoming GW, to `data/ep_log.json`. It is append-only; keep the first capture per GW. That lets future backtests compare against FPL's own estimate, which the API does not keep for past GWs.
+2. **Model (`fpl_brief/xp_model.py`, new, pure functions, stdlib).** Implement the recipe in research §1 "Putting it together", with the 2026/27 scoring table in §0.
+   - **Minutes:**
+     - `p_play` and `p_60` come from the player's last N appearances (N = 4, time-weighted).
+     - **The next GW only** is multiplied by `chance_of_playing_next_round/100` when FPL flags a doubt. Players with status `i`/`s`/`u`/`n` get 0 next GW.
+     - Later weeks use the recent-minutes rate, which fixes the Stage 1 doubt-carry. Players with status `i`, or `s` with a known return, are back at their normal rate from the GW after `news` implies, or GW+2 if unknown. Keep this simple and labelled.
+   - **Attack:** shrunk xG/90 and xA/90 with `rate = (events + k·prior)/(exposure + k)` and k = 900 minutes. The prior is the position × price-band mean from this season's pooled data, with price bands from `now_cost`. This season only, no `history_past`. Scale per fixture by Stage 1's `att_mult` (team attack × opponent defence relative to league average).
+   - **Defence:** P(CS) from the Stage 1 team model (`exp(−λ_against)`), and `E[floor(GC/2)]` from a Poisson sum. Both apply to GK/DEF with the §0 points.
+   - **Side points:**
+     - Defensive contribution: a rate of points per 90, shrunk with k = 10 matches to the position mean.
+     - Bonus: k = 10 matches, to the position mean.
+     - Cards: k = 10 matches.
+     - GK saves/3: k = 10 matches.
+   - **Output:** per player, per GW of the 6-GW horizon, a total plus a breakdown `{appearance, goals, assists, clean_sheet, conceded, saves, defcon, bonus, cards}`. Double GWs sum, blank GWs are 0.
+   - **Constants:** all are named and commented as defaults from AIrsenal/research §2.
+3. **Backtest (`fpl_brief/backtest.py`, new, stdlib, `python -m fpl_brief.backtest`).**
+   - For each finished GW k ≥ 3, fit using GWs < k only (no leakage) and predict GW k.
+   - Report mean absolute error (MAE) and Spearman rank correlation against actual `total_points`, for every player who played and for the top 100 by price.
+   - Compare against two baselines available for past GWs: the player's points per game so far, and the average of the last 3 GWs.
+   - Where `data/ep_log.json` has FPL's `ep_next` for a GW, compare against that too. Today it will have none, which is expected.
+   - Output is a plain table on stdout and an optional `--json`.
+4. **Wiring (side by side, not replacing).**
+   - `projection.build` gains a `model` choice: `"fpl"` (Stage 1, the default) or `"own"`.
+   - The Candidate lens shows **both** six-week numbers: "Next 6 GWs (FPL-based)" and "(our model)". It flags players where they differ by more than 2 points per GW on average.
+   - Clicking or hovering a player shows our model's breakdown, with values escaped.
+   - The planned-transfers summary gains `horizon_delta_own` next to `horizon_delta`.
+   - The default stays FPL-based. **Switching the default is a later Overseer decision**, based on backtest evidence.
+5. **Tests (`tests/test_xp_model.py`, `tests/test_backtest.py`, new; extend the existing ones).** Cover:
+   - scoring by position;
+   - shrinkage: zero minutes gives the prior, and a heavy-minutes player tends to their own rate;
+   - the minutes model, including a doubt applying to next GW only and an injured player returning;
+   - the Poisson sum for `E[floor(GC/2)]`;
+   - DGW and BGW;
+   - no-leakage in the backtest, by building a fixture where using GW k data would change the answer;
+   - the collector writing both new files from fake live data, including a failed fetch;
+   - the lens and plan fields.
+
+## Allowed paths
+
+`fpl_brief/xp_model.py`, `fpl_brief/backtest.py`, `fpl_brief/projection.py`, `fpl_brief/collect.py`, `fpl_brief/candidates.py`, `fpl_brief/plan.py`, `fetch_fpl.py` (only if the new data files need writing there), `dashboard.py` (only if wiring needs it), `dashboard/*.ts|css|html` (Candidate lens and planned-transfers strip only), `tests/test_xp_model.py`, `tests/test_backtest.py`, `tests/test_projection.py`, `tests/test_research_candidates.py`, `tests/test_plan.py`, `tests/test_fpl_brief.py`, `tests/test_fetch_fpl.py`, `tests/test_dashboard.py`, `README.md`, `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only).
+
+You may run the fetcher once to generate the new data files for the backtest, but do not commit.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs` · `python -m fpl_brief.backtest` (report the table)
+
+## Constraints
+
+- Stdlib only.
+- Read-only public FPL endpoints.
+- Every number is labelled as an estimate.
+- The bonus prior is this season only, because BPS changed for 2026/27.
+- Escape all UI output.
+
+---
+
+# Previous task — Stage 1 projections: six-gameweek expected points from `ep_next` and fixtures
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort). Orchestration by the main session.
 **Status:** APPROVED (review PASS 2026-10-05; optional items 1–3 fixed after review, focused tests 107 OK; local only, release needs Overseer approval)

@@ -2,7 +2,7 @@ import math
 import unittest
 
 from fpl_brief import projection
-from fpl_brief.collect import team_results
+from fpl_brief.collect import HISTORY_FIELDS, team_results
 
 
 def result(home, away, hg, ag, hxg=None, axg=None, gw=1, fixture_id=1):
@@ -166,6 +166,34 @@ class TeamResultsCollectorTests(unittest.TestCase):
         self.assertEqual((rows[3]["home_xg"], rows[3]["away_xg"], rows[3]["home_goals"]), (None, None, 4))
         self.assertEqual(len(warnings), 1)
         self.assertIn("GW3", warnings[0])
+
+    def test_player_history_rows_from_the_same_live_calls(self):
+        fixtures = [
+            {"id": 1, "event": 1, "finished": True, "team_h": 1, "team_a": 2, "team_h_score": 2, "team_a_score": 1},
+            {"id": 2, "event": 2, "finished": True, "team_h": 1, "team_a": 2, "team_h_score": 0, "team_a_score": 0},
+            {"id": 3, "event": 3, "finished": True, "team_h": 1, "team_a": 2, "team_h_score": 1, "team_a_score": 0},
+            {"id": 4, "event": 3, "finished": False, "team_h": 2, "team_a": 1, "team_h_score": None, "team_a_score": None},
+        ]
+        elements = [{"id": 11, "team": 1}, {"id": 21, "team": 2}, {"id": 22, "team": 2}]
+        minutes = lambda value: {"identifier": "minutes", "value": value, "points": 2}
+        live1 = {"elements": [
+            {"id": 11, "stats": {"minutes": 90, "starts": 1, "expected_goals": "0.81", "expected_assists": "0.10", "goals_scored": 1, "bonus": 3,
+                                 "defensive_contribution": 12, "total_points": 12, "yellow_cards": 1},
+             "explain": [{"fixture": 1, "stats": [minutes(90), {"identifier": "defensive_contribution", "value": 12, "points": 2}]}]},
+            {"id": 21, "stats": {"minutes": 0, "expected_goals": "0.00"}, "explain": []},
+            {"id": 22, "stats": {"minutes": 45, "saves": 4, "goals_conceded": 2, "total_points": 1}, "explain": [{"fixture": 1, "stats": [minutes(45)]}]},
+        ]}
+        live3 = {"elements": [{"id": 11, "stats": {"minutes": 90, "expected_goals": "0.2"}, "explain": [{"fixture": 3, "stats": [minutes(90)]}]}]}
+        client = self.FakeClient({"event/1/live/": live1, "event/2/live/": RuntimeError("timeout"), "event/3/live/": live3})
+        warnings, history = [], []
+        team_results(client, fixtures, elements, warnings, history)
+        rows = [dict(zip(HISTORY_FIELDS, row)) for row in history]
+        # GW2 failed (warned) and GW3 is still being played, so only GW1 rows are kept; 0-minute players are skipped.
+        self.assertEqual([(row["gw"], row["id"]) for row in rows], [(1, 11), (1, 22)])
+        self.assertEqual({key: rows[0][key] for key in ("team", "fixtures", "minutes", "starts", "xg", "xa", "goals", "bonus", "defcon_points", "yellow", "total_points")},
+                         {"team": 1, "fixtures": 1, "minutes": 90, "starts": 1, "xg": 0.81, "xa": 0.1, "goals": 1, "bonus": 3, "defcon_points": 2, "yellow": 1, "total_points": 12})
+        self.assertEqual((rows[1]["saves"], rows[1]["gc"], rows[1]["defcon_points"]), (4, 2, 0))
+        self.assertTrue(any("GW2" in warning for warning in warnings))
 
 
 if __name__ == "__main__":

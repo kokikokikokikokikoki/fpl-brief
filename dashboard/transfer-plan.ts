@@ -10,6 +10,7 @@ export interface PlanSummary {
   xi_delta: number;
   net_delta: number;
   horizon_delta?: number | null;
+  horizon_delta_own?: number | null;
   horizon_gameweeks?: number[];
   method: string;
 }
@@ -74,7 +75,7 @@ export function renderPlanStrip(plan: PlannedTransfer[], result: PlanResult | nu
   if (result?.state === "ready") {
     const s = result.summary;
     const free = s.free_transfers === "unlimited" ? "unlimited free transfers" : `${s.transfers.length - s.paid_transfers} of ${s.free_transfers ?? 0} free transfers`;
-    body = `<p class="plan-status"><strong>${esc(signed(s.net_delta))}</strong> FPL estimate next GW after hits${typeof s.horizon_delta === "number" ? ` · <strong>${esc(signed(s.horizon_delta))}</strong> over the next ${esc(s.horizon_gameweeks?.length || 6)} GWs (decayed estimate)` : ""} · ${esc(free)}${s.hit_points ? ` · <span class="plan-bad">hit −${esc(s.hit_points)}</span>` : ""} · ${esc(money(s.budget_left))} left</p><p class="plan-fine">${esc(s.method)} The board below shows the best XI with these transfers.</p>`;
+    body = `<p class="plan-status"><strong>${esc(signed(s.net_delta))}</strong> FPL estimate next GW after hits${typeof s.horizon_delta === "number" ? ` · <strong>${esc(signed(s.horizon_delta))}</strong> over the next ${esc(s.horizon_gameweeks?.length || 6)} GWs (decayed estimate)${typeof s.horizon_delta_own === "number" ? `, <strong>${esc(signed(s.horizon_delta_own))}</strong> on our model` : ""}` : ""} · ${esc(free)}${s.hit_points ? ` · <span class="plan-bad">hit −${esc(s.hit_points)}</span>` : ""} · ${esc(money(s.budget_left))} left</p><p class="plan-fine">${esc(s.method)} The board below shows the best XI with these transfers.</p>`;
   }
   return `<section class="plan-strip" aria-label="Planned transfers"><div class="plan-head"><h3>Planned transfers</h3><button class="plan-clear button-secondary" type="button">Clear plan</button></div><ul class="plan-moves">${moves}</ul>${body}</section>`;
 }

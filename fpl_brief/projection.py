@@ -177,8 +177,14 @@ def squad_horizon(projections, players, squad_ids):
     return round(total, 2)
 
 
-def build(snapshot, catalog, horizon=HORIZON):
-    """Project every catalog player over the next ``horizon`` gameweeks."""
+def build(snapshot, catalog, horizon=HORIZON, model="fpl", history=None):
+    """Project every catalog player over the next ``horizon`` gameweeks.
+
+    ``model="fpl"`` (the default) re-weights FPL's ep_next; ``model="own"`` uses the Stage 2
+    component model in ``xp_model`` with ``history`` (data/player_history.json).
+    """
+    if model not in ("fpl", "own"):
+        raise ValueError("model must be 'fpl' or 'own'")
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     players = [player for player in (catalog or {}).get("players", []) if isinstance(player, dict) and isinstance(player.get("id"), int)]
     team_ids = [team.get("id") for team in (catalog or {}).get("teams", []) if isinstance(team, dict) and team.get("id") is not None]
@@ -191,8 +197,14 @@ def build(snapshot, catalog, horizon=HORIZON):
         caveats.append("This snapshot has no team results, so every club is rated average and only the number of fixtures changes the projection. Refresh FPL data to fit team ratings.")
     elif not ratings["matches"]:
         caveats.append("No finished matches yet, so every club is rated average.")
+    if model == "own":
+        from . import xp_model  # imported here: xp_model builds on this module's helpers
+        projected, own_caveats = xp_model.project_all(snapshot, players, history, ratings, gameweeks, fixtures)
+        return {"model": "own", "available": not own_caveats, "gameweeks": gameweeks, "ratings": ratings,
+                "ratings_fitted": bool(ratings["matches"]), "players": projected, "method": xp_model.METHOD,
+                "caveats": caveats + own_caveats}
     return {
-        "gameweeks": gameweeks, "ratings": ratings, "ratings_fitted": bool(ratings["matches"]),
+        "model": "fpl", "gameweeks": gameweeks, "ratings": ratings, "ratings_fitted": bool(ratings["matches"]),
         "players": {player["id"]: project_player(player, fixtures, gameweeks, ratings) for player in players},
         "method": (f"Estimate, not a forecast: FPL's ep_next with next week's fixture difficulty removed, then re-weighted by "
                    f"each later fixture from team attack/defence ratings fitted to this season's xG (goals where xG is missing), "

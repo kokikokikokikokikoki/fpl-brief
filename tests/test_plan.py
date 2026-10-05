@@ -87,6 +87,22 @@ class PlanTests(unittest.TestCase):
         hit = plan.build(snapshot, catalog, {**private, "free_transfers": 0}, FRESH, [(11, 20)], NOW)["summary"]
         self.assertEqual(hit["horizon_delta"], round(double["horizon_delta"] - 4, 2))
 
+    def test_horizon_delta_own_is_side_by_side_and_needs_history(self):
+        snapshot, catalog, private = build(bank=50)
+        without = plan.build(snapshot, catalog, private, FRESH, [(11, 20)], NOW)["summary"]
+        self.assertIsNone(without["horizon_delta_own"])
+        self.assertIn("unavailable until player history", without["method"])
+        fields = ["gw", "id", "team", "fixtures", "minutes", "starts", "xg", "xa", "goals", "assists", "cs", "gc", "saves",
+                  "defcon_points", "bonus", "yellow", "red", "total_points"]
+        rows = [[gw, pid, SQUAD[pid][1], 1, 90, 1, 0.1, 0.1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 2]
+                for gw in (1, 2, 3) for pid in range(1, 16)]
+        rows += [[gw, 20, 6, 1, 90, 1, 0.9, 0.3, 1, 0, 0, 1, 0, 0, 2, 0, 0, 9] for gw in (1, 2, 3)]
+        with_history = plan.build(snapshot, catalog, private, FRESH, [(11, 20)], NOW, history={"fields": fields, "rows": rows})["summary"]
+        self.assertGreater(with_history["horizon_delta_own"], 0)
+        self.assertEqual(with_history["horizon_delta"], without["horizon_delta"])
+        hit = plan.build(snapshot, catalog, {**private, "free_transfers": 0}, FRESH, [(11, 20)], NOW, history={"fields": fields, "rows": rows})["summary"]
+        self.assertEqual(hit["horizon_delta_own"], round(with_history["horizon_delta_own"] - 4, 2))
+
     def test_extra_transfers_cost_hits_and_unlimited_costs_none(self):
         result = self.run_plan([(11, 20), (15, 24)], bank=50)
         self.assertEqual(result["state"], "ready", result.get("reason"))

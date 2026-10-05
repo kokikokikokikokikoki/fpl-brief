@@ -65,17 +65,28 @@ interface Candidate {
   availability: string;
   xp_6?: number | null;
   xp_6_decayed?: number | null;
+  xp_6_own?: number | null;
+  xp_6_own_decayed?: number | null;
+  own_breakdown?: Record<string, number> | null;
+  own_flags?: string[];
+  models_differ?: boolean;
 }
 
 interface CandidateResponse {
   candidates: Candidate[];
   budget: number;
   budget_source: "account" | "public";
-  outgoing: { name?: string; selling_price: number; xp_6?: number | null };
+  outgoing: { name?: string; selling_price: number; xp_6?: number | null; xp_6_own?: number | null };
   method: string;
   projection?: { gameweeks: number[]; ratings_fitted: boolean; method: string };
+  projection_own?: { available: boolean; method: string; differ_per_gw?: number; caveats?: string[] };
   caveats: string[];
 }
+
+const BREAKDOWN_LABELS: Array<[string, string]> = [
+  ["appearance", "Appearance"], ["goals", "Goals"], ["assists", "Assists"], ["clean_sheet", "Clean sheets"],
+  ["conceded", "Goals conceded"], ["saves", "Saves"], ["defcon", "Defensive contributions"], ["bonus", "Bonus"], ["cards", "Cards"],
+];
 
 interface JobResponse {
   id: string;
@@ -114,6 +125,18 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(error);
   }
   return body as T;
+}
+
+/** Our-model cell for the Candidate lens: decayed total, a flag when the two models disagree, and the breakdown on click or hover. */
+export function ownModelCell(player: Pick<Candidate, "xp_6_own" | "xp_6_own_decayed" | "own_breakdown" | "own_flags" | "models_differ">): string {
+  if (typeof player.xp_6_own_decayed !== "number") return "—";
+  const parts = BREAKDOWN_LABELS.filter(([key]) => typeof player.own_breakdown?.[key] === "number")
+    .map(([key, label]) => `${label} ${(player.own_breakdown?.[key] ?? 0).toFixed(2)}`);
+  const flags = (player.own_flags ?? []).filter((flag) => typeof flag === "string");
+  const title = [`Undecayed: ${player.xp_6_own ?? "—"}`, ...parts, ...flags].join(" · ");
+  const differ = player.models_differ ? ' <span class="model-differ" aria-label="Differs from the FPL-based number by more than 2 points per GW">≠</span>' : "";
+  const list = parts.map((part) => `<li>${escapeHtml(part)}</li>`).join("") + flags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("");
+  return `<details class="xp-breakdown"><summary title="${escapeHtml(title)}">${escapeHtml(player.xp_6_own_decayed)}${differ}</summary><ul class="small">${list}</ul></details>`;
 }
 
 export function mountDeskTools(runtime: DashboardRuntime): {
@@ -228,15 +251,18 @@ export function mountDeskTools(runtime: DashboardRuntime): {
     const sortBy = required<HTMLSelectElement>("#candidate-sort", view).value;
     try {
       const result = await requestJson<CandidateResponse>(`/api/candidates?replace_id=${encodeURIComponent(replaceId)}&minimum_minutes=${encodeURIComponent(minimum)}`);
-      const shown = sortBy === "xp6" ? [...result.candidates].sort((a, b) => (b.xp_6_decayed ?? -1) - (a.xp_6_decayed ?? -1)) : result.candidates;
+      const shown = sortBy === "xp6" ? [...result.candidates].sort((a, b) => (b.xp_6_decayed ?? -1) - (a.xp_6_decayed ?? -1))
+        : sortBy === "xp6own" ? [...result.candidates].sort((a, b) => (b.xp_6_own_decayed ?? -1) - (a.xp_6_own_decayed ?? -1)) : result.candidates;
       const rows = shown.length
-        ? shown.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td title="${escapeHtml(typeof player.xp_6 === "number" ? `Undecayed: ${player.xp_6}` : "")}">${escapeHtml(player.xp_6_decayed ?? "-")}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
-        : '<tr><td colspan="10">No players meet every selected filter.</td></tr>';
+        ? shown.map((player) => `<tr><td><span class="row-kit">${runtime.kit ? runtime.kit(player.team_id) : ""}</span><span class="player-name">${escapeHtml(player.name)}</span></td><td>£${(player.price / 10).toFixed(1)}m</td><td>${escapeHtml(player.minutes)}</td><td>${escapeHtml(player.xgi_per_90 ?? "-")}</td><td>${escapeHtml(player.fixture_difficulty_average ?? "-")}</td><td title="${escapeHtml(typeof player.xp_6 === "number" ? `Undecayed: ${player.xp_6}` : "")}">${escapeHtml(player.xp_6_decayed ?? "-")}</td><td>${ownModelCell(player)}</td><td>${escapeHtml(player.availability)}</td><td>${escapeHtml(player.ownership ?? "—")}%</td><td>${escapeHtml(typeof player.net_transfers === "number" ? `${player.net_transfers >= 0 ? "+" : "−"}${Math.abs(player.net_transfers).toLocaleString("en-GB")}` : "—")}</td><td>${runtime.planTransfer ? `<button class="button-secondary try-board" type="button" data-try-in="${escapeHtml(player.id)}" aria-label="Try ${escapeHtml(player.name)} on the board">Try on board</button>` : ""}</td></tr>`).join("")
+        : '<tr><td colspan="11">No players meet every selected filter.</td></tr>';
       const horizonCount = result.projection?.gameweeks?.length || 6;
       const money = (tenths: number): string => `£${(tenths / 10).toFixed(1)}m`;
-      const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).${typeof result.outgoing.xp_6 === "number" ? ` ${escapeHtml(result.outgoing.name ?? "Outgoing player")} projects ${escapeHtml(result.outgoing.xp_6)} over the next ${escapeHtml(horizonCount)} GWs (estimate).` : ""}</p>`;
-      const horizonNote = result.projection ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs, decayed 0.85 per week: ${escapeHtml(result.projection.method)}</p>` : "";
-      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p>${horizonNote}<p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Next ${escapeHtml(horizonCount)} GWs (decayed)</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      const budget = `<p><strong>Budget ${escapeHtml(money(result.budget))}</strong> = ${escapeHtml(result.outgoing.name ?? "outgoing player")} selling price ${escapeHtml(money(result.outgoing.selling_price))} + bank (${result.budget_source === "account" ? "from your FPL account" : "from the public snapshot"}).${typeof result.outgoing.xp_6 === "number" ? ` ${escapeHtml(result.outgoing.name ?? "Outgoing player")} projects ${escapeHtml(result.outgoing.xp_6)} over the next ${escapeHtml(horizonCount)} GWs (FPL-based estimate)${typeof result.outgoing.xp_6_own === "number" ? `, ${escapeHtml(result.outgoing.xp_6_own)} on our model` : ""}.` : ""}</p>`;
+      const horizonNote = result.projection ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs (FPL-based), decayed 0.85 per week: ${escapeHtml(result.projection.method)}</p>` : "";
+      const own = result.projection_own;
+      const ownNote = own ? `<p class="small">Next ${escapeHtml(horizonCount)} GWs (our model), shown side by side; FPL-based stays the default. ${own.available ? escapeHtml(own.method) : "Our model is unavailable until player history is collected."} ≠ marks players where the two differ by more than ${escapeHtml(own.differ_per_gw ?? 2)} points per GW on average. Click a value for its breakdown.${(own.caveats ?? []).length ? ` ${(own.caveats ?? []).map(escapeHtml).join(" ")}` : ""}</p>` : "";
+      output.innerHTML = `${budget}<p class="method">${escapeHtml(result.method)}</p>${horizonNote}${ownNote}<p class="small">${result.caveats.map(escapeHtml).join(" ")}</p><div class="table-wrap"><table><thead><tr><th>Player</th><th>Price</th><th>Minutes</th><th>xGI/90</th><th>Avg FDR</th><th>Next ${escapeHtml(horizonCount)} GWs (FPL-based, decayed)</th><th>Next ${escapeHtml(horizonCount)} GWs (our model, decayed)</th><th>Availability</th><th>Own</th><th>Net transfers</th><th><span class="visually-hidden">Plan</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       output.querySelectorAll<HTMLButtonElement>("[data-try-in]").forEach((button) => {
         button.onclick = () => {
           const problem = runtime.planTransfer?.(Number(replaceId), Number(button.dataset.tryIn));
@@ -251,7 +277,7 @@ export function mountDeskTools(runtime: DashboardRuntime): {
   function openLens(replacePlayerId?: number): void {
     runtime.activate("candidates");
     const view = required<HTMLElement>("#candidates");
-    view.innerHTML = `<article class="panel"><div class="panel-head"><div><h2>Candidate Lens</h2><p>Legal same-position replacements only. It ranks visible inputs; "Next 6 GWs" is an estimate, not a forecast.</p></div></div><div class="lens-controls"><label>Replace<select id="candidate-replace">${squadOptions()}</select></label><label>Minimum minutes<select id="candidate-minutes"><option value="0">Any minutes</option><option value="450">450+</option><option value="900">900+</option></select></label><label>Sort by<select id="candidate-sort"><option value="xgi">xGI per 90</option><option value="xp6">Next 6 GWs (estimate)</option></select></label><button id="candidate-run" class="button-primary">Find candidates</button></div><div id="candidate-output" class="lens-output"><p class="small">Budget uses the outgoing player's selling price plus bank from your captured FPL account data. Without a fresh capture, Candidate Lens stays blocked rather than guessing.</p></div></article>`;
+    view.innerHTML = `<article class="panel"><div class="panel-head"><div><h2>Candidate Lens</h2><p>Legal same-position replacements only. It ranks visible inputs; both "Next 6 GWs" columns are estimates, not forecasts.</p></div></div><div class="lens-controls"><label>Replace<select id="candidate-replace">${squadOptions()}</select></label><label>Minimum minutes<select id="candidate-minutes"><option value="0">Any minutes</option><option value="450">450+</option><option value="900">900+</option></select></label><label>Sort by<select id="candidate-sort"><option value="xgi">xGI per 90</option><option value="xp6">Next 6 GWs (FPL-based estimate)</option><option value="xp6own">Next 6 GWs (our model)</option></select></label><button id="candidate-run" class="button-primary">Find candidates</button></div><div id="candidate-output" class="lens-output"><p class="small">Budget uses the outgoing player's selling price plus bank from your captured FPL account data. Without a fresh capture, Candidate Lens stays blocked rather than guessing.</p></div></article>`;
     if (replacePlayerId !== undefined) {
       const select = required<HTMLSelectElement>("#candidate-replace", view);
       if (Array.from(select.options).some((option) => option.value === String(replacePlayerId))) select.value = String(replacePlayerId);

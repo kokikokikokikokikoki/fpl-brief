@@ -679,6 +679,13 @@ class Handler(SimpleHTTPRequestHandler):
     def api_data(self):
         return read_json(ROOT / "data" / "latest.json", default=None), read_json(ROOT / "data" / "catalog.json", default={"players": [], "teams": []})
 
+    def player_history(self):
+        """Stage 2 model input; a missing or unreadable file means "our model" is shown as unavailable."""
+        try:
+            return read_json(ROOT / "data" / "player_history.json", default=None)
+        except (OSError, ValueError):
+            return None
+
     def host_is_local(self):
         host = (self.headers.get("Host") or "").strip().lower()
         hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
@@ -888,7 +895,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if decision["status"] == "blocked":
                     return self.send_json({"error": "Candidate Lens is blocked: " + " ".join(decision["blockers"])}, HTTPStatus.CONFLICT)
                 private = self.private_data(config, snapshot or {})
-                return self.send_json(lens(snapshot or {}, catalog, replace_id, minimum_minutes, config.get("stale_after_hours", 8), private=private))
+                return self.send_json(lens(snapshot or {}, catalog, replace_id, minimum_minutes, config.get("stale_after_hours", 8), private=private, history=self.player_history()))
             except (TypeError, ValueError) as error:
                 return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
 
@@ -899,7 +906,7 @@ class Handler(SimpleHTTPRequestHandler):
                 pairs = transfer_plan.parse_transfers(parse_qs(parsed.query).get("transfers", [""])[0])
             except ValueError as error:
                 return self.send_json({"state": "invalid", "reason": str(error)}, HTTPStatus.BAD_REQUEST)
-            result = transfer_plan.build(snapshot or {}, catalog, self.private_data(config, snapshot or {}), freshness, pairs)
+            result = transfer_plan.build(snapshot or {}, catalog, self.private_data(config, snapshot or {}), freshness, pairs, history=self.player_history())
             return self.send_json(result, HTTPStatus.OK if result["state"] == "ready" else HTTPStatus.UNPROCESSABLE_ENTITY)
         if path.startswith("/api/players/"):
             try:

@@ -32,7 +32,10 @@ def is_available(player):
     return player.get("status") == "a" and (chance is None or chance >= 100)
 
 
-def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, now=None, private=None):
+DIFFER_PER_GW = 2.0  # flag players whose two six-week numbers differ by more than this per gameweek
+
+
+def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, now=None, private=None, history=None):
     """Return legal same-position alternatives with every applied rule exposed."""
     snapshot = snapshot or {}
     players = player_map(catalog)
@@ -80,9 +83,16 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
             team_counts[player.get("team")] = team_counts.get(player.get("team"), 0) + 1
     difficulties = fixture_difficulties(snapshot)
     projected = projection.build(snapshot, catalog)
+    own = projection.build(snapshot, catalog, model="own", history=history)
+    weeks = max(len(projected["gameweeks"]), 1)
     def horizon(player_id):
         row = projected["players"].get(player_id) or {}
-        return {"xp_6": row.get("xp_6"), "xp_6_decayed": row.get("xp_6_decayed")}
+        ours = (own["players"].get(player_id) or {}) if own["available"] else {}
+        both = isinstance(row.get("xp_6"), (int, float)) and isinstance(ours.get("xp_6"), (int, float))
+        return {"xp_6": row.get("xp_6"), "xp_6_decayed": row.get("xp_6_decayed"),
+                "xp_6_own": ours.get("xp_6"), "xp_6_own_decayed": ours.get("xp_6_decayed"),
+                "own_breakdown": ours.get("breakdown_total"), "own_weekly": ours.get("xp"), "own_flags": ours.get("flags") or [],
+                "models_differ": both and abs(row["xp_6"] - ours["xp_6"]) / weeks > DIFFER_PER_GW}
     candidates = []
     for player in players.values():
         if player["id"] in owned_ids or player.get("element_type") != outgoing.get("element_type"):
@@ -105,8 +115,10 @@ def lens(snapshot, catalog, replace_id, minimum_minutes=0, stale_after_hours=8, 
         "budget": budget,
         "filters": {"same_position": True, "within_budget": True, "team_limit": 3, "availability": "available only", "minimum_minutes": minimum_minutes},
         "candidates": candidates,
-        "method": "Rows are filtered for legal replacements, then shown by xGI per 90, minutes, and fixture difficulty. Next 6 GWs is an estimate, not a forecast.",
+        "method": "Rows are filtered for legal replacements, then shown by xGI per 90, minutes, and fixture difficulty. Both Next 6 GWs columns (FPL-based and our model) are estimates, not forecasts.",
         "projection": {"gameweeks": projected["gameweeks"], "ratings_fitted": projected["ratings_fitted"], "method": projected["method"]},
+        "projection_own": {"available": own["available"], "method": own["method"], "differ_per_gw": DIFFER_PER_GW,
+                           "caveats": [caveat for caveat in own["caveats"] if caveat not in projected["caveats"]]},
         "budget_source": "account" if account else "public",
         "caveats": [budget_source, "Fixture difficulty is the average published FDR across the stored horizon.", *projected["caveats"]],
     }

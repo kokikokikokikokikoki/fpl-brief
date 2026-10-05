@@ -85,18 +85,76 @@ def _xg_by_fixture(live, fixtures, player_teams):
     return totals
 
 
-def team_results(client, fixtures, elements, warnings):
-    """One compact row per finished fixture: scores from fixtures/, club xG from event/{gw}/live/."""
+# Column order of data/player_history.json rows (one row per player per finished gameweek with minutes).
+# ``fixtures`` is how many matches the minutes came from (2 in a double gameweek); ``defcon_points``
+# comes from the live ``explain`` points because ``stats.defensive_contribution`` is the raw CBIT/CBIRT count.
+HISTORY_FIELDS = ("gw", "id", "team", "fixtures", "minutes", "starts", "xg", "xa", "goals", "assists", "cs", "gc",
+                  "saves", "defcon_points", "bonus", "yellow", "red", "total_points")
+HISTORY_STATS = {"minutes": "minutes", "starts": "starts", "goals": "goals_scored", "assists": "assists", "cs": "clean_sheets",
+                 "gc": "goals_conceded", "saves": "saves", "bonus": "bonus", "yellow": "yellow_cards", "red": "red_cards",
+                 "total_points": "total_points"}
+
+
+def _int(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _float(value):
+    try:
+        return round(float(value or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def player_rows(live, gameweek, fixtures, player_teams):
+    """Compact per-player rows (lists in HISTORY_FIELDS order) for everyone with minutes in one gameweek."""
+    club_fixtures = {}
+    for fixture in fixtures:
+        for side in ("team_h", "team_a"):
+            club_fixtures.setdefault(fixture[side], set()).add(fixture["id"])
+    rows = []
+    for element in (live or {}).get("elements", []):
+        stats = element.get("stats") or {}
+        if not isinstance(element.get("id"), int) or _int(stats.get("minutes")) <= 0:
+            continue
+        explain = [row for row in element.get("explain") or [] if isinstance(row, dict)]
+        played = [row for row in explain if any(stat.get("identifier") == "minutes" and _int(stat.get("value")) > 0
+                                                for stat in row.get("stats") or [] if isinstance(stat, dict))]
+        team = player_teams.get(element["id"])
+        if explain and not club_fixtures.get(team, set()) & {row.get("fixture") for row in explain}:
+            team = None  # minutes were for another club (moved since this gameweek)
+        defcon = sum(_int(stat.get("points")) for row in explain for stat in row.get("stats") or []
+                     if isinstance(stat, dict) and stat.get("identifier") == "defensive_contribution")
+        values = {"gw": gameweek, "id": element["id"], "team": team, "fixtures": max(len(played), 1),
+                  "xg": _float(stats.get("expected_goals")), "xa": _float(stats.get("expected_assists")), "defcon_points": defcon,
+                  **{key: _int(stats.get(name)) for key, name in HISTORY_STATS.items()}}
+        rows.append([values[field] for field in HISTORY_FIELDS])
+    return rows
+
+
+def team_results(client, fixtures, elements, warnings, history=None):
+    """One compact row per finished fixture: scores from fixtures/, club xG from event/{gw}/live/.
+
+    When ``history`` is a list, player rows from the same live responses are appended to it, but only
+    for gameweeks whose fixtures have all finished (so a half-played gameweek never looks complete).
+    """
     finished = [fixture for fixture in fixtures if fixture.get("finished") and isinstance(fixture.get("event"), int) and fixture.get("id") is not None
                 and fixture.get("team_h_score") is not None and fixture.get("team_a_score") is not None]
+    complete = {fixture["event"] for fixture in finished} - {fixture.get("event") for fixture in fixtures if not fixture.get("finished")}
     player_teams = {player.get("id"): player.get("team") for player in elements}
     rows = []
     for gameweek in sorted({fixture["event"] for fixture in finished}):
         gw_fixtures = [fixture for fixture in finished if fixture["event"] == gameweek]
         try:
-            xg = _xg_by_fixture(client.get(f"event/{gameweek}/live/"), gw_fixtures, player_teams)
+            live = client.get(f"event/{gameweek}/live/")
+            xg = _xg_by_fixture(live, gw_fixtures, player_teams)
+            if history is not None and gameweek in complete:
+                history.extend(player_rows(live, gameweek, gw_fixtures, player_teams))
         except Exception as error:
-            warnings.append(f"Could not collect GW{gameweek} xG; projections use goals for that week: {error}")
+            warnings.append(f"Could not collect GW{gameweek} live data; projections use goals for that week and keep any earlier player history: {error}")
             xg = {}
         for fixture in sorted(gw_fixtures, key=lambda row: row["id"]):
             values = xg.get(fixture["id"]) or {}
@@ -108,7 +166,32 @@ def team_results(client, fixtures, elements, warnings):
     return rows
 
 
-def collect(client, config):
+def player_history_doc(rows, previous=None, generated_at=None):
+    """Columnar player history; keeps earlier rows for any gameweek this run could not fetch."""
+    fresh = {row[0] for row in rows}
+    kept = []
+    if isinstance(previous, dict) and list(previous.get("fields") or []) == list(HISTORY_FIELDS):
+        kept = [row for row in previous.get("rows") or [] if isinstance(row, list) and len(row) == len(HISTORY_FIELDS) and row[0] not in fresh]
+    merged = sorted(kept + [list(row) for row in rows], key=lambda row: (row[0], row[1]))
+    return {"schema_version": 1, "generated_at_utc": generated_at, "fields": list(HISTORY_FIELDS), "rows": merged}
+
+
+def ep_log_update(log, elements, gameweek, captured_at=None):
+    """Append FPL's ep_next for the upcoming gameweek; the first capture per gameweek is kept."""
+    log = log if isinstance(log, dict) and isinstance(log.get("gameweeks"), dict) else {"schema_version": 1, "gameweeks": {}}
+    if not isinstance(gameweek, int) or str(gameweek) in log["gameweeks"]:
+        return log
+    estimates = {}
+    for player in elements:
+        try:
+            estimates[str(player["id"])] = round(float(player.get("ep_next")), 2)
+        except (KeyError, TypeError, ValueError):
+            continue
+    log["gameweeks"][str(gameweek)] = {"captured_at_utc": captured_at, "ep_next": estimates}
+    return log
+
+
+def collect(client, config, extras=None):
     warnings = []
     boot = client.get("bootstrap-static/")
     events = boot.get("events", [])
@@ -135,6 +218,7 @@ def collect(client, config):
         except Exception as error:
             warnings.append(f"Could not collect rival {rival['entry']}: {error}")
     fixtures = client.get("fixtures/")
+    player_history = []
     snapshot = {
         "schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "chip_rules": boot.get("chips"),
@@ -144,6 +228,8 @@ def collect(client, config):
         "league": {"name": "#club-football", "rank": user_standing.get("rank") if user_standing else None, "points": user_standing.get("total") if user_standing else None, "leader": {"entry_id": leader.get("entry"), "name": leader.get("entry_name"), "points": leader.get("total")} if leader else None, "gap_to_leader": (leader.get("total") - user_standing.get("total")) if leader and user_standing else None, "provisional": bool(summary["current"] and not summary["current"].get("finished"))},
         "rivals": rival_rows, "fixtures": fixture_horizon(fixtures, events, config["fixture_horizon"]),
         "availability": availability(boot.get("elements", []), user_picks),
-        "team_results": team_results(client, fixtures, boot.get("elements", []), warnings), "warnings": warnings,
+        "team_results": team_results(client, fixtures, boot.get("elements", []), warnings, player_history), "warnings": warnings,
     }
+    if isinstance(extras, dict):
+        extras["player_history"] = player_history
     return snapshot, boot

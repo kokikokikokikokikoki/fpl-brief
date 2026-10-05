@@ -169,6 +169,28 @@ class CandidateLensTests(unittest.TestCase):
         self.assertEqual((candidate["xp_6"], candidate["xp_6_decayed"]), (12.0, round(4 + 8 * 0.85, 2)))
         self.assertEqual(result["outgoing"]["xp_6"], 3.0)
 
+    def test_lens_shows_our_model_side_by_side_and_flags_big_differences(self):
+        self.snapshot["events"]["next"]["id"] = 1
+        self.snapshot["team_results"] = []
+        for player in self.catalog["players"]:
+            player["ep_next"] = "20.0"
+        without = lens(self.snapshot, self.catalog, 1, 450, now=self.now)
+        self.assertIsNone(without["candidates"][0]["xp_6_own"])
+        self.assertFalse(without["projection_own"]["available"])
+        self.assertFalse(without["candidates"][0]["models_differ"])
+        fields = ["gw", "id", "team", "fixtures", "minutes", "starts", "xg", "xa", "goals", "assists", "cs", "gc", "saves",
+                  "defcon_points", "bonus", "yellow", "red", "total_points"]
+        history = {"fields": fields, "rows": [[0, 5, 2, 1, 90, 1, 0.4, 0.2, 0, 0, 0, 1, 0, 0, 1, 0, 0, 5]]}
+        result = lens(self.snapshot, self.catalog, 1, 450, now=self.now, history=history)
+        candidate = result["candidates"][0]
+        self.assertTrue(result["projection_own"]["available"])
+        self.assertGreater(candidate["xp_6_own"], 0)
+        self.assertEqual(set(candidate["own_breakdown"]), {"appearance", "goals", "assists", "clean_sheet", "conceded", "saves", "defcon", "bonus", "cards"})
+        # FPL-based says 20 for the one stored GW; our model is far lower, so the row is flagged.
+        self.assertEqual(candidate["xp_6"], 20.0)
+        self.assertTrue(candidate["models_differ"])
+        self.assertIn("xp_6_own", result["outgoing"])
+
     def test_lens_requires_an_owned_outgoing_player(self):
         with self.assertRaisesRegex(ValueError, "public squad"):
             lens(self.snapshot, self.catalog, 999, now=self.now)

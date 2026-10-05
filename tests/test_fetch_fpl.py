@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +59,30 @@ class DigestTests(unittest.TestCase):
         result = fetch_fpl.get("test", opener=opener, retries=2, sleep=lambda _: None)
         self.assertEqual(result, {"ok": True})
         self.assertEqual(len(calls), 2)
+
+
+class ModelDataTests(unittest.TestCase):
+    def test_writes_player_history_and_append_only_ep_log(self):
+        fields = fetch_fpl.player_history_doc([], None)["fields"]
+        def row(gw, pid, points):
+            values = dict.fromkeys(fields, 0)
+            values.update(gw=gw, id=pid, team=1, fixtures=1, minutes=90, total_points=points)
+            return [values[field] for field in fields]
+        boot = {"elements": [{"id": 10, "ep_next": "4.5"}, {"id": 11, "ep_next": None}]}
+        snapshot = {"generated_at_utc": "2026-10-05T00:00:00+00:00", "events": {"next": {"id": 6}}}
+        with tempfile.TemporaryDirectory() as root:
+            fetch_fpl.write_model_data({"player_history": [row(1, 10, 6), row(2, 10, 2)]}, boot, snapshot, root)
+            # Second run: GW2's live fetch failed, so its earlier rows are kept; GW1 is refreshed.
+            later = dict(snapshot, generated_at_utc="2026-10-05T06:00:00+00:00")
+            fetch_fpl.write_model_data({"player_history": [row(1, 10, 7)]}, {"elements": [{"id": 10, "ep_next": "9.9"}]}, later, root)
+            with open(f"{root}/player_history.json", encoding="utf-8") as handle:
+                history = json.load(handle)
+            with open(f"{root}/ep_log.json", encoding="utf-8") as handle:
+                log = json.load(handle)
+        points = fields.index("total_points")
+        self.assertEqual([(r[0], r[points]) for r in history["rows"]], [(1, 7), (2, 2)])
+        self.assertEqual(history["generated_at_utc"], "2026-10-05T06:00:00+00:00")
+        self.assertEqual(log["gameweeks"]["6"], {"captured_at_utc": "2026-10-05T00:00:00+00:00", "ep_next": {"10": 4.5}})
 
 
 if __name__ == "__main__":

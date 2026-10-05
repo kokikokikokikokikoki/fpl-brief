@@ -1126,6 +1126,12 @@ check(ready.includes("-0.5") && ready.includes("1 of 1 free transfers") && ready
 const horizon = plan.renderPlanStrip([{ out: 1, in: 10 }], { state: "ready", lineup: {}, summary: { transfers: [{}], budget_left: 7, free_transfers: 1, paid_transfers: 0, hit_points: 0, xi_delta: 1, net_delta: 1, horizon_delta: 6.4, horizon_gameweeks: [6, 7, 8, 9, 10, 11], method: "<m>" } }, names);
 check(horizon.includes("+6.4</strong> over the next 6 GWs (decayed estimate)") && horizon.includes("&lt;m&gt;") && !ready.includes("over the next"), "six-week delta shown only when present");
 check(plan.renderPlanStrip([], null, names) === "", "no plan, no strip");
+const own = plan.renderPlanStrip([{ out: 1, in: 10 }], { state: "ready", lineup: {}, summary: { transfers: [{}], budget_left: 7, free_transfers: 1, paid_transfers: 0, hit_points: 0, xi_delta: 1, net_delta: 1, horizon_delta: 6.4, horizon_delta_own: -1.2, horizon_gameweeks: [6, 7], method: "m" } }, names);
+check(own.includes("<strong>-1.2</strong> on our model") && !horizon.includes("on our model"), "our-model delta shown next to the FPL-based one");
+const lensTools = load("dashboard/desk-tools.ts");
+const cell = lensTools.ownModelCell({ xp_6_own: 20.5, xp_6_own_decayed: 17.25, own_breakdown: { appearance: 12, goals: 3.5 }, own_flags: ["Doubt <b>x</b>"], models_differ: true });
+check(cell.includes("17.25") && cell.includes("Goals 3.50") && cell.includes("Doubt &lt;b&gt;x&lt;/b&gt;") && !cell.includes("<b>") && cell.includes("model-differ") && cell.includes("<details"), "own-model cell with escaped breakdown and differ flag");
+check(lensTools.ownModelCell({ xp_6_own: null, xp_6_own_decayed: null }) === "—" && !lensTools.ownModelCell({ xp_6_own: 1, xp_6_own_decayed: 1, models_differ: false }).includes("model-differ"), "own-model cell fallbacks");
 const missing = desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "m", captured_at_utc: null, age_hours: null }, 6572775);
 check(missing.includes("https://fantasy.premierleague.com/api/my-team/6572775/") && missing.includes('rel="noopener noreferrer"') && missing.includes("never your password") && missing.includes("<details class=\"account-import\" open"), "import section on missing");
 check(!desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "m" }, "6572775/../x").includes("my-team/6572775/../x"), "non-integer team id is not linked");

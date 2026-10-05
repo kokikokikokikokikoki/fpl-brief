@@ -32,7 +32,7 @@ def _available(player):
     return player.get("status") == "a" and (chance is None or chance >= 100)
 
 
-def build(snapshot, catalog, private, freshness, pairs, now=None):
+def build(snapshot, catalog, private, freshness, pairs, now=None, history=None):
     """Return {"state": "ready", "lineup", "summary"} or {"state": "invalid", "reason"}."""
     def invalid(reason):
         return {"state": "invalid", "reason": reason}
@@ -94,6 +94,9 @@ def build(snapshot, catalog, private, freshness, pairs, now=None):
     projected = projection.build(snapshot, catalog)
     horizon_before = projection.squad_horizon(projected["players"], players, owned)
     horizon_after = projection.squad_horizon(projected["players"], players, new_squad)
+    own = projection.build(snapshot, catalog, model="own", history=history)
+    own_delta = (round(projection.squad_horizon(own["players"], players, new_squad)
+                       - projection.squad_horizon(own["players"], players, owned) - hit_points, 2) if own["available"] else None)
     return {"state": "ready", "lineup": planned, "summary": {
         "transfers": [{"out": {"id": out, "name": players[out].get("web_name"), "selling_price": prices[out]["selling_price"]},
                        "in": {"id": incoming, "name": players[incoming].get("web_name"), "price": players[incoming].get("now_cost")}}
@@ -101,8 +104,11 @@ def build(snapshot, catalog, private, freshness, pairs, now=None):
         "budget_left": budget_left, "free_transfers": free, "paid_transfers": paid, "hit_points": hit_points,
         "xi_delta": xi_delta, "net_delta": round(xi_delta - hit_points, 2),
         "horizon_delta": round(horizon_after - horizon_before - hit_points, 2), "horizon_gameweeks": projected["gameweeks"],
+        "horizon_delta_own": own_delta,
         "method": ("Next GW: the best XI's FPL estimate (ep_next) with and without the moves, minus any hit. "
                    f"Next {len(projected['gameweeks'])} GWs: an estimate, not a forecast. Each week's best XI from ep_next re-weighted by a "
-                   f"fixture model, later weeks weighted {projection.DECAY} per week, minus any hit once. No captain and no later transfers."
+                   f"fixture model, later weeks weighted {projection.DECAY} per week, minus any hit once. No captain and no later transfers. "
+                   + ("Our model: the same six-week sum from our own component model (minutes, xG/xA, clean sheets, bonus and more), shown "
+                      "side by side; FPL-based stays the default." if own["available"] else "Our model is unavailable until player history is collected.")
                    + (" " + " ".join(projected["caveats"]) if projected["caveats"] else "")),
     }}

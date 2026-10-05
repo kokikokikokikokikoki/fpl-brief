@@ -11,7 +11,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from fpl_brief.api import Client
-from fpl_brief.collect import collect
+from fpl_brief.collect import collect, ep_log_update, player_history_doc
 from fpl_brief.config import load as load_config
 from fpl_brief.analyze import meaningful_changes
 from fpl_brief.decision import assess
@@ -192,16 +192,27 @@ def write_atomic(path, content):
         raise
 
 
+def write_model_data(extras, boot, snapshot, root="data"):
+    """Write data/player_history.json (compact, columnar) and append to data/ep_log.json."""
+    history = player_history_doc(extras.get("player_history") or [], read_json(f"{root}/player_history.json", default=None), snapshot["generated_at_utc"])
+    write_json_atomic(f"{root}/player_history.json", json.dumps(history, separators=(",", ":"), ensure_ascii=False) + "\n")
+    next_id = ((snapshot.get("events") or {}).get("next") or {}).get("id")
+    log = ep_log_update(read_json(f"{root}/ep_log.json", default=None), boot.get("elements", []), next_id, snapshot["generated_at_utc"])
+    write_json_atomic(f"{root}/ep_log.json", json.dumps(log, separators=(",", ":"), ensure_ascii=False) + "\n")
+
+
 def main():
     config = load_config()
     previous = read_json("data/latest.json", default=None)
-    snapshot, boot = collect(Client(), config)
+    extras = {}
+    snapshot, boot = collect(Client(), config, extras)
     changes = {"schema_version": 1, "generated_at_utc": snapshot["generated_at_utc"], "changes": meaningful_changes(previous, snapshot)}
     decision = assess(snapshot, config)
     digest = render(snapshot, boot, config["timezone"], decision)
     write_json_atomic("data/latest.json", snapshot)
     write_json_atomic("data/decision.json", decision)
     write_json_atomic("data/changes.json", changes)
+    write_model_data(extras, boot, snapshot)
     write_json_atomic("data/catalog.json", {
         "schema_version": 1,
         "generated_at_utc": snapshot["generated_at_utc"],
