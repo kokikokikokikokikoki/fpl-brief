@@ -1,5 +1,24 @@
 # Claude handoff — FPL Brief
 
+## Latest state (2026-10-05) — read this first
+
+- **Where things stand:** all five maths stages are built, reviewed and live on `main`, which deploys to the Render site:
+  - six-week projections (FPL-based and our own model, with a backtest);
+  - the transfer planner (HiGHS, local-only), with force in/out/keep;
+  - rival maths (effective ownership, captaincy vs rivals, finish and title odds);
+  - prices.
+
+  Design source: `research/fpl-maths.md`. Process records: `ops/TASK.md`, `ops/REVIEW.md`, `ops/DECISIONS.md`.
+- **The manager's live plan is `plans/gw6-11.md`:** the GW6 moves, pre-deadline checks, the run to the international break, chips, and the model's known weaknesses. When the user asks "what should I do", start there and verify the news is current. Search the web, and name sources.
+- **Model roles (Overseer decision 2026-10-05):** Fable 5.1 orchestrates at medium effort; Opus 5.5 handles workers and reviewers, with the reviewer always a separate agent; Sonnet 5.5 does minor tasks.
+- **Not available in a cloud checkout:** `local/private_team.json` (the FPL account capture: selling prices, free transfers, chips) is gitignored. The planner (`python -m fpl_brief.optimise`) needs it, and so needs the user's own machine. Public-data features work anywhere: `python fetch_fpl.py`, `python -m fpl_brief.backtest`, `projection.build(..., model="own")`.
+- **Next engineering task (not started):** model fix.
+  - Weight recent games more and damp single-game blowouts (United's 5.15 xG v Ipswich inflates their attack).
+  - Use last-season player shares capped by this season's team ratings.
+  - Add a lineup/captain decision replay to the backtest. In a replay of GW2–5, the model picked Szoboszlai as captain and lost to the user's own picks.
+
+---
+
 **Prepared:** 2026-09-25  
 **Repository root:** `C:\Users\User\fpl-brief`  
 **Purpose:** Give Claude enough verified project context to resume work without relying on chat history. This handoff summarizes the current state; the repository's task, review, and decision records remain authoritative.
