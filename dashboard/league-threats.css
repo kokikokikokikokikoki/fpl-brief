@@ -1,0 +1,47 @@
+/* League threats and fixture ticker (Tactics Board world, see DESIGN.md). */
+.lt { margin-bottom: 22px; }
+.lt-summary { margin: 0 0 14px; color: var(--marker-blue); font-size: 20px; line-height: 1.35; }
+.lt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 26px; margin-bottom: 18px; }
+.lt-grid section { min-width: 0; padding-top: 10px; border-top: 1px dashed var(--rule); }
+.lt-grid .fine { margin: 2px 0 8px; color: var(--ink-soft); font-size: 13px; }
+.lt-h { margin: 0; font: 700 13px/1.2 var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.lt-h.red { color: var(--marker-red); } .lt-h.green { color: var(--marker-green); }
+.lt-list { margin: 0; padding: 0; list-style: none; }
+.lt-list li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--rule-soft); font-size: 15px; }
+.lt-list .sub { display: block; }
+.lt-list .row-kit .jersey, .tk-table .row-kit .jersey { width: 28px; height: 28px; }
+.lt-count { font: 800 18px/1 var(--display); font-variant-numeric: tabular-nums; }
+.lt-chip { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 8px; border-radius: 999px; background: var(--enamel-shade); box-shadow: inset 0 0 0 1px var(--rule); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.lt-table tr.is-you td { background: rgb(28 85 199 / 9%); }
+.lt-table td { font-variant-numeric: tabular-nums; }
+.lt-ahead { color: var(--marker-red); font-weight: 700; }
+.lt-behind { color: var(--marker-green); font-weight: 700; }
+
+.tk { margin-top: 22px; }
+.tk-table th[scope="row"] { display: grid; grid-template-columns: 30px auto; column-gap: 8px; align-items: center; min-width: 150px; text-align: left; font-weight: 400; }
+.tk-table th[scope="row"] .row-kit { grid-row: span 2; }
+.tk-table th[scope="row"] .sub { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-table td { position: relative; padding: 4px; vertical-align: middle; }
+.tk-table tr:not(.tk-yours) { opacity: .82; }
+.tk-yours .player-name { font-weight: 800; }
+.tk-game { display: grid; min-width: 58px; padding: 4px 6px; border-radius: 6px; font-weight: 700; font-size: 14px; text-align: center; line-height: 1.15; }
+.tk-game + .tk-game { margin-top: 3px; }
+.tk-game small { font-weight: 600; opacity: .8; }
+.tk-date { font-size: 11px; font-weight: 500; opacity: .75; }
+.tk-blank { background: repeating-linear-gradient(135deg, var(--enamel-shade) 0 5px, transparent 5px 10px); color: var(--ink-soft); }
+.tk-avg { text-align: center; font: 800 17px/1 var(--display); border-radius: 6px; }
+.tk-break { border-left: 3px dashed var(--marker-blue); }
+.tk-break-label { position: absolute; top: -2px; left: 4px; color: var(--marker-blue); font: 700 12px/1 var(--hand); }
+@media (max-width: 1100px) { .lt-grid { grid-template-columns: 1fr; } }
+
+.wl { margin-top: 22px; }
+.wl-list { margin: 0; padding: 0; list-style: none; }
+.wl-list > li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px dashed var(--rule); }
+.wl-list > li:first-child { border-top: 0; }
+.wl-list .row-kit .jersey { width: 40px; height: 40px; }
+.wl-body p { margin: 2px 0; font-size: 15px; }
+.wl-head strong { font: 800 20px/1.1 var(--display); }
+.wl-window { display: inline-block; margin-right: 6px; padding: 1px 9px; border-radius: 999px; background: var(--ink-soft); color: #fff; font: 700 12px/1.6 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.watch-open .wl-window { background: var(--marker-green); }
+.watch-passed .wl-window { background: var(--marker-red); }
+.wl-body .hand { font-size: 19px; }

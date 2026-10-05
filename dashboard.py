@@ -24,6 +24,8 @@ from fpl_brief.candidates import lens
 from fpl_brief import lineup as lineup_helper
 from fpl_brief import crowd as crowd_data
 from fpl_brief import jev_ask
+from fpl_brief import matchday
+from fpl_brief import league as league_data
 from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
 from fpl_brief import web_session
@@ -52,6 +54,8 @@ HEALTH_LOGGED = 0
 # In-app Jev (Claude + web search): a per-server daily question cap keeps pay-per-use cost bounded.
 JEV_USAGE = {"day": None, "count": 0}
 JEV_LOCK = threading.Lock()
+# Matchday reads public FPL endpoints through a shared, bounded TTL cache (tests replace this getter).
+MATCHDAY_GET = matchday.cached_getter()
 
 
 def jev_daily_limit():
@@ -459,6 +463,41 @@ def build_team_decision(snapshot, catalog, research, freshness):
             "chips": chip_ledger(snapshot, bool(freshness.get("stale", True)))}
 
 
+STATUS_WORDS = {"a": "available", "d": "doubtful", "i": "injured", "s": "suspended", "u": "unavailable", "n": "not eligible"}
+
+
+def watchlist(config, snapshot, catalog):
+    """Players marked "ones to watch" with a target gameweek window, joined to live catalog facts."""
+    players = player_map(catalog)
+    teams = {team.get("id"): team.get("short_name") for team in catalog.get("teams") or [] if isinstance(team, dict)}
+    next_gw = ((snapshot.get("events") or {}).get("next") or {}).get("id")
+    owned = {pick.get("element") for pick in (snapshot.get("squad_snapshot") or {}).get("picks") or [] if isinstance(pick, dict)}
+    rows = []
+    for item in config.get("watchlist") or []:
+        player = players.get(item["player_id"]) or {}
+        window = "unknown" if not isinstance(next_gw, int) else "early" if next_gw < item["from_gw"] else "passed" if next_gw > item["to_gw"] else "open"
+        rows.append({"id": item["player_id"], "name": player.get("web_name") or f"#{item['player_id']}", "team": teams.get(player.get("team")),
+                     "keeper": player.get("element_type") == 1, "price": player.get("now_cost"), "status": STATUS_WORDS.get(player.get("status"), "unknown"),
+                     "chance": player.get("chance_of_playing_next_round"), "news": player.get("news") or "", "minutes": player.get("minutes"),
+                     "ownership": player.get("selected_by_percent"), "from_gw": item["from_gw"], "to_gw": item["to_gw"],
+                     "note": item.get("note", ""), "trigger": item.get("trigger", ""), "window": window, "owned": item["player_id"] in owned,
+                     "weeks_until": (item["from_gw"] - next_gw) if isinstance(next_gw, int) and next_gw < item["from_gw"] else 0})
+    return rows
+
+
+def fixture_ticker(snapshot, catalog):
+    """Every club's next fixtures from the snapshot, with your players' names beside their club."""
+    teams = {team.get("id"): team for team in catalog.get("teams") or [] if isinstance(team, dict)}
+    players = player_map(catalog)
+    squad_teams = {}
+    for pick in (snapshot.get("squad_snapshot") or {}).get("picks") or []:
+        player = players.get(pick.get("element")) if isinstance(pick, dict) else None
+        if player:
+            squad_teams.setdefault(player.get("team"), []).append(player.get("web_name"))
+    first = ((snapshot.get("events") or {}).get("next") or {}).get("id")
+    return league_data.ticker((snapshot.get("fixtures") or {}).get("events") or {}, teams, squad_teams, first)
+
+
 def evaluate_plan(plan, catalog):
     players = player_map(catalog)
     selected = [players[player_id] for player_id in plan.get("players", []) if player_id in players]
@@ -821,8 +860,20 @@ class Handler(SimpleHTTPRequestHandler):
                                    "team_decision": team_decision,
                                    "auth": {"enabled": bool(auth_settings()[0])},
                                    "crowd": crowd_data.build(snapshot, catalog),
+                                   "ticker": fixture_ticker(snapshot, catalog),
+                                   "watchlist": watchlist(config, snapshot, catalog),
                                    "jev": {"enabled": bool(jev_ask.api_key()), "daily_limit": jev_daily_limit()},
                                    "workflow": read_json(ROOT / "data" / "workflow_status.json", default={"schema_version": 1})})
+        if path == "/api/league":
+            try:
+                return self.send_json(league_data.threats(snapshot or {}, MATCHDAY_GET))
+            except Exception:
+                return self.send_json({"state": "unavailable", "reason": "League data came back in an unexpected shape. Try again shortly."})
+        if path == "/api/matchday":
+            try:
+                return self.send_json(matchday.build(snapshot or {}, MATCHDAY_GET))
+            except Exception:
+                return self.send_json({"state": "unavailable", "reason": "Matchday data came back in an unexpected shape. Try again shortly."})
         if path == "/api/research":
             return self.send_json(research_result(load_config(), snapshot))
         if path == "/api/workflow-status":

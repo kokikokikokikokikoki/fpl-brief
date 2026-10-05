@@ -96,6 +96,8 @@ This replaced the 2026-09-23 Away-Day Route Map (Overseer decision 2026-09-25). 
 
 - **Board.** An aluminium frame (gradient frame-hi → frame, 14px padding, radius 18px, soft offset shadow) around the enamel. The pitch lines are printed in faint teal. The bench is a recessed grey tray under the enamel.
 - **Shirt magnet.** A minimal SVG jersey in club colours; keepers get a distinct keeper shirt. It sits on a round magnet base with an offset drop shadow, above a navy name plate and an "FPL est." line. Hover or selection lifts the magnet (translateY −6px, rotate −2deg, deeper shadow, 350ms expo ease-out). Doubtful players get a caution-coloured plate label and a "Doubtful" word.
+- **Score magnet** (Matchday). The same magnet, not interactive, with a points chip on the shirt; the chip turns marker green at 10+. It carries the armband (C or TC), marker-hand "↑/↓ auto-sub" notes, a "+N bonus?" line for projected bonus, and faded shirts for players still to play. Subbed-off players sit dimmed in the bench tray.
+- **Ledger bars** (Matchday). The actual score is an ink bar laid over a red-hatched "best possible" bar, so the uncovered hatch is the points left behind.
 - **Marker annotations.** SVG strokes with rounded caps and a slight wobble: arrows from the bench tray to the pitch for each suggested start, an ellipse around the captain, and short notes. They are decorative, so they are `aria-hidden`; the same facts appear as text in Coach's notes.
 - **Coach's notes.** An enamel panel with dashed rules between sections, where marker-hand lines state the changes. It holds the selected-player detail (`aria-live`) and the Ask Jev prompt.
 - **Panels and tables** (the other views) are enamel sheets on the wall, with a radius of 14px, soft offset shadows, dashed or solid rules, and no nested cards. Tables use 15px text and an ink-soft uppercase header.
@@ -105,7 +107,7 @@ This replaced the 2026-09-23 Away-Day Route Map (Overseer decision 2026-09-25). 
 ## Interaction
 
 - **Try-a-lineup.** Magnets can be dragged (pointer or touch) between the bench and the pitch, or selected with a click or keyboard and then swapped. Formation rules are enforced, and an illegal drop snaps back with a marker message. Totals update live. The board is saved in this browser only and never contacts FPL.
-- **Motion.** There is one authored motion: the magnet lift and settle. Everything else is instant. Reduced-motion settings remove the lift transition.
+- **Motion.** There are two authored motions: the magnet lift and settle, and the pulsing dot on the red "Live" status chip. Everything else is instant. Reduced-motion settings remove both.
 
 ## Don'ts
 

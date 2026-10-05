@@ -1,3 +1,139 @@
+# Independent review: League threats panel and fixture ticker
+
+**Date:** 2026-09-26
+**Verdict:** **PASS** (nothing blocking; optional items below)
+
+## Checks
+
+- **Chip windows:** `chips_left` (`fpl_brief/league.py:20-32`) keeps only rules whose `start_event..stop_event` contains the week. A chip counts as used only if its `event` falls in that same window (line 30), so a chip used in the first half doesn't consume the second-half chip. A non-int event defaults to 0 and never matches.
+- **Threat lists:** `half = ceil(n/2)`, with a minimum of 1 (line 134).
+  - "Missing" means `counts >= half` and not in your squad (line 141).
+  - "Shared" means `>= half` (line 142).
+  - "Differentials" means `<= 1` (line 143).
+  - You are excluded from rivals (line 100). Rivals are sorted by rank, then entry (line 98).
+  - Gap is `rival total − your total`: positive means they are ahead (lines 146 and 151). The UI colours it the same way (`dashboard/league-threats.ts:46,49`).
+  - If your own picks fail, it returns unavailable (line 113). A failed rival is skipped with a warning (line 114).
+- **Ticker:** GW keys can be strings or ints (lines 45 and 54). `first` filters out earlier weeks (line 47).
+  - A club gets a break when the gap between its consecutive kickoffs is 12 days or more, carried across blank weeks (lines 64-69).
+  - Blanks and doubles show in the UI (`league-threats.ts:67-70`).
+  - Rows sort by the next-4 average, and rows with no average go last (line 74).
+- **Server:** `/api/league` sits after `self.gate(path)` and the loopback-host check (`dashboard.py:811-825,844-848`). Its exceptions are caught.
+  - Outbound paths are built only from ints: config `team_id`/`league_id`, the bootstrap GW, and the standings `entry` via `_int`.
+  - All fetches go through the shared TTL cache (`dashboard.py:58`, `league.py:85-86,105`). A cold load is about 22 fetches; after that, cache hits.
+  - The frontend reloads at most every 10 minutes, and not while a load is in flight (`dashboard/app.ts:431-447`).
+- **Escaping:** Every interpolated value goes through `esc` (`league-threats.ts:20-22`), including warnings, captains and the `aria-label`.
+  - Class names come from `fdr()`, which only returns ints 0-5 (line 23).
+  - `jerseySvg` uses the team only as a lookup key, never as output (`dashboard/kits.ts:33`).
+- **Runs:** `tests.test_league` passes 6/6. The full `discover` run passes 203/203. `npm run typecheck` is clean. No network calls were made.
+
+## Blocking
+
+None.
+
+## Optional
+
+1. **Wrong gap when you're off page 1:** If you aren't on standings page 1 (a league with more than 50 members), `you.total` is None. The gaps are then computed against 0 (`league.py:146,151`), so the probe showed "300 behind" when the real gap was 20.
+   - Fix: fall back to `picks.entry_history.total_points` for your total, or return `gap: null` and hide it. This doesn't affect the current league: you are rank 3 in `data/latest.json`.
+2. **Mixed timezones crash the ticker:** If one kickoff has a timezone and another doesn't, the subtraction at `league.py:66` raises TypeError. `fixture_ticker` isn't wrapped (`dashboard.py:841`), so `/api/dashboard` returns a 500. FPL always sends `Z`, so this is low risk.
+   - Fix: normalise naive datetimes to UTC in `_parse`, or wrap the ticker call.
+3. **No break flag on the first week:** A break before the first GW in the window is never flagged, because there is no earlier kickoff in the window to compare with. This could be fixed with the last finished fixture, or noted in `method`.
+4. **Rows without an entry id:** A standings row whose `entry` isn't an int becomes entry 0 and is fetched as `entry/0/...`. It fails harmlessly, but such rows could be filtered out.
+
+---
+
+# Supervisor re-review: Matchday
+
+**Date:** 2026-09-26
+**Verdict:** **PASS**
+
+## Blocking issue fixed
+
+The earlier issue was live points staying out of date for up to an hour after the first kick-off. It is now fixed in two places:
+
+- `fpl_brief/matchday.py:301` sets `ttl = PICKS_TTL if status == "final" else LIVE_TTL`.
+- `cached()` (`fpl_brief/matchday.py:52-67`) now stores the time each entry was saved. It treats an entry as fresh only within the ttl the caller asks for, so an entry saved with a long ttl is fetched again when a live-ttl caller asks for it.
+  - Eviction still removes the oldest entries first, and the cache stays capped at 256 keys.
+
+The regression test `CacheTests.test_waiting_to_live_refetches_the_live_feed` passes.
+
+## Optional suggestions taken
+
+- Projected bonus is skipped when the live feed already has `bonus > 0` (`matchday.py:144`).
+  - **Minor note:** in a double gameweek this can leave out the projected bonus for the second match while it is live. That is conservative, and acceptable because it is labelled as a projection.
+- `move()` now converts its value with `Number()` (`dashboard/matchday.ts:65-66`).
+- Bar widths now go through `pct()`, which keeps them between 0 and 100 (`dashboard/matchday.ts:35` and `:88`).
+- A failed refresh shows an escaped "Couldn't refresh just now" note (`dashboard/matchday.ts:121`).
+
+## Optional suggestions not taken
+
+These two were optional and the decision not to take them is accepted:
+
+- #3, a per-key in-flight lock on the cache.
+- #5, skipping a pending bench player whose sub would break the formation.
+
+## Verification
+
+- `python -m unittest tests.test_matchday -v`: 23 tests, all OK.
+- `npm run typecheck --prefix dashboard`: OK.
+- No network calls were made to FPL.
+
+---
+
+# Supervisor review: Matchday (live gameweek, live mini-league, points left on the table)
+
+**Date:** 2026-09-26
+**Reviewer:** an independent Opus 5.5 subagent at medium effort (it did not implement this change)
+**Verdict:** **FAIL: CHANGES_REQUESTED** (1 blocking issue)
+
+## Verification
+
+- `python -m unittest tests.test_matchday -v`: 22 tests, all OK.
+- `python -m unittest discover -s tests`: 196 tests, all OK.
+- `npm run typecheck --prefix dashboard`: OK.
+- The reviewer made no network calls to FPL. A local reproduction with a fake fetch and a fake clock confirmed the blocking bug below.
+
+## Blocking
+
+1. **Live points freeze for up to an hour after the first kick-off.**
+   - **Where:** `fpl_brief/matchday.py:295-296` together with `cached()` at `fpl_brief/matchday.py:52-64`.
+   - **Why it happens:** while `status == "waiting"` (the deadline has passed but no fixture has started), the live feed is cached with `PICKS_TTL`, which is 3600 s. The cache key is `("get", path)` and the stored expiry wins, so later calls that pass `LIVE_TTL` still get that same entry.
+   - **What the user sees:** after kick-off, `_status` turns "live" from the fixtures, which are cached for 60 s. The client starts its 60 s refresh, but `event/{gw}/live/` keeps serving the pre-kick-off payload for up to an hour. Points, auto-subs, the live league and the swings all show roughly zero.
+   - **Reproduction:** load the feed with ttl=3600 at t=0, then call again at t=120 with ttl=60. The cached payload comes back and the fetch is not repeated.
+   - **Fix:** use the long TTL only when `status == "final"`, for example `ttl = PICKS_TTL if status == "final" else LIVE_TTL`. Add a regression test in which the status goes from waiting to live and the live feed is fetched again.
+
+## Checked and correct
+
+- **Auto-subs** (`matchday.py:149-173`):
+  - bench order is respected, and a keeper only replaces a keeper;
+  - the formation check `_legal` is correct;
+  - a pending bench player (`break` at line 163) stops further projection. This is conservative when that player's sub would be illegal anyway, which is acceptable;
+  - a team with no fixture counts as `done` (line 139), so a blank-GW starter with 0 minutes is subbed.
+- **Double gameweeks:** `team_fixture_state` (lines 109-121) handles them correctly.
+- **Captaincy and chips:** the captain passes to the vice correctly, Triple Captain is ×3, and Bench Boost counts all 15 with no subs (lines 174-185).
+- **Bonus projection** (lines 95-106): it uses competition ranking with 1→3, 2→2 and 3→1 points. This matches FPL's tie rules, including a tie for first leaving the next player on 1.
+- **League table** (lines 221-237): `before = total_points − points + cost` and `live = before + scored − cost` are consistent with FPL's gross `points` and net `total_points`.
+- **Hindsight** (lines 191-218): the armband and lineup costs add up to `left`, and `left` is never negative.
+- **Divisions:** every division is guarded (lines 242, 255 and 379).
+- **Shared state:** rows are fresh per call, so no cached payload is mutated.
+- **Server safety:**
+  - `/api/matchday` sits after `gate()` (`dashboard.py:793`) and after the loopback Host check (`dashboard.py:808`).
+  - Fetched URLs use only `_int` values from the snapshot or bootstrap, with no request input.
+  - The cache is locked and bounded at 256 keys.
+  - The endpoint catches every exception (`dashboard.py:829-833`), and `Unavailable` messages are generic.
+- **Frontend:**
+  - Every string is escaped with `esc()`, and `jerseySvg` only looks up a table.
+  - Refresh runs only while the status is live, the view is active and the tab is visible, at least 55 s apart. `loading` guards against a second request in flight, and the time is updated even when a load fails, so there is no request storm.
+
+## Optional suggestions
+
+- `dashboard/matchday.ts:65-66` and `:86` interpolate numbers without `esc()`: `move(n)` and the bar `style="width:…%"`. They are safe today because the server sends `_int` values. Wrap them in `Number()` or `esc()` for defence in depth.
+- `dashboard/app.ts` keeps showing the old data without any notice when a refresh fails, because `renderMatchday` only shows `error` when there is no data. Show a small "last refresh failed" note.
+- `cached()` loads outside the lock, so concurrent requests can make duplicate FPL fetches when the cache is cold (a stampede). This is acceptable at the current scale; a per-key in-flight lock would remove it.
+- To avoid double-counting, skip projected bonus for players whose live `bonus` is already above 0 in a single-fixture gameweek.
+- Sub projection could skip a pending bench player whose substitution would break the formation, instead of stopping at them.
+
+---
+
 # Supervisor review
 
 **Task:** Hosted dashboard loading-state fix within Railway readiness

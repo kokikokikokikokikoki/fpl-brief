@@ -511,6 +511,8 @@ const overview = { innerHTML: "", insertAdjacentHTML(_position, html) { this.inn
 function required() { return overview; }
 function renderTeamDecisionDesk() { return ""; }
 function renderPrivateTeamPanel() { return ""; }
+function renderTicker() { return ""; }
+function renderWatchlist() { return ""; }
 const state = { data: { snapshot: {
   league: { rank: 12, points: 80, gap_to_leader: 4, leader: { name: "Leader & Co" } },
   availability: [{ name: "</strong><img src=x onerror=alert(1)>", chance: "<svg/onload=alert(2)>", status: "d", news: "<b>untrusted note</b>" }],

@@ -1,0 +1,59 @@
+/* Matchday view: live points on the Tactics Board (see DESIGN.md). */
+.md-status { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; padding: 2px 10px; border-radius: 999px; background: var(--ink); color: #fff; font: 700 14px/1.5 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.md-status.live { background: var(--marker-red); }
+.md-status.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: md-pulse 1.4s ease-in-out infinite; }
+.md-status.provisional { background: var(--caution); }
+.md-status.final { background: var(--marker-green); }
+@keyframes md-pulse { 50% { opacity: .25; } }
+.md-score dd { color: var(--marker-blue); font-size: 40px !important; }
+
+.md-shirt { cursor: default; }
+.md-shirt:hover { transform: none; filter: drop-shadow(0 3px 3px rgb(0 0 0 / 20%)); }
+.md-shirt.is-out { opacity: .55; }
+.md-shirt.is-yet .jersey { opacity: .8; }
+.md-pts { position: absolute; top: 36px; left: 50%; z-index: 1; min-width: 34px; padding: 0 6px; border-radius: 8px; background: var(--enamel); color: var(--ink); font: 800 22px/1.25 var(--display); text-align: center; transform: translateX(-50%); box-shadow: 0 2px 4px rgb(0 0 0 / 25%); font-variant-numeric: tabular-nums; }
+.md-pts.hot { background: var(--marker-green); color: #fff; }
+.md-tag { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.md-tag.live { color: var(--marker-red); }
+.md-tag.green { color: var(--marker-green); font-family: var(--hand); font-size: 16px; }
+.md-tag.red { color: var(--marker-red); font-family: var(--hand); font-size: 16px; }
+.md-bonus { color: var(--marker-blue); font: 700 15px/1 var(--hand); }
+
+.md-league th, .md-league td { padding: 7px 8px; font-variant-numeric: tabular-nums; }
+.md-league td:first-child { white-space: nowrap; font-weight: 700; }
+.md-league tr.is-you td { background: rgb(28 85 199 / 9%); }
+.md-league tr.is-you .player-name::after { content: " (you)"; color: var(--marker-blue); }
+.md-move { display: inline-block; min-width: 26px; color: var(--ink-soft); font-size: 12px; }
+.md-move.up { color: var(--marker-green); }
+.md-move.down { color: var(--marker-red); }
+.coach-notes h4 { margin: 10px 0 4px; font-size: 20px; }
+.md-swings { margin: 0; padding: 0; list-style: none; }
+.md-swings li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--rule-soft); font-size: 15px; }
+.md-swings .sub { display: block; }
+.md-impact { font: 800 20px/1 var(--display); font-variant-numeric: tabular-nums; }
+.md-impact.green { color: var(--marker-green); } .md-impact.red { color: var(--marker-red); }
+
+.md-ledger { margin-top: 26px; }
+.md-ledger-top { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 24px; align-items: end; margin-bottom: 10px; }
+.md-ledger-top > div { display: grid; gap: 2px; }
+.md-ledger-top strong { font: 700 30px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.md-big strong { color: var(--marker-red); font-size: 64px !important; line-height: .95 !important; }
+.md-big span { font: 700 20px/1.2 var(--hand); color: var(--marker-red); }
+.md-callout { margin: 6px 0 12px; font-size: 22px; }
+.md-bars { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.md-bars li { display: grid; grid-template-columns: 110px minmax(0, 1fr) 118px; align-items: center; gap: 12px; }
+.md-gw { font: 700 17px/1.1 var(--display); }
+.md-gw .sub { display: block; font: 600 12px/1.2 var(--body); }
+.md-bar { position: relative; height: 22px; border-radius: 6px; background: var(--enamel-shade); }
+.md-best, .md-actual { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 6px; }
+.md-best { background: repeating-linear-gradient(135deg, rgb(201 48 44 / 22%) 0 6px, rgb(201 48 44 / 8%) 6px 12px); box-shadow: inset 0 0 0 1.5px rgb(201 48 44 / 45%); }
+.md-actual { background: var(--ink); }
+.md-nums { font-variant-numeric: tabular-nums; }
+.md-left { color: var(--marker-red); font-weight: 700; }
+
+@media (max-width: 700px) {
+  .md-bars li { grid-template-columns: 70px minmax(0, 1fr); }
+  .md-nums { grid-column: 2; }
+  .md-big strong { font-size: 52px !important; }
+  .md-pts { top: 28px; font-size: 18px; }
+}

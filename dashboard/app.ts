@@ -6,6 +6,10 @@ import { mountTacticsBoard, renderTacticsBoard } from "./tactics-board";
 import { jerseySvg } from "./kits";
 import { crowdNote, mountJev, renderCrowd, type CrowdData, type JevInfo } from "./crowd-view";
 import "./crowd-view.css";
+import { renderMatchday, type MatchdayData } from "./matchday";
+import "./matchday.css";
+import { renderThreats, renderTicker, renderWatchlist, type ThreatsData, type TickerData, type WatchRow } from "./league-threats";
+import "./league-threats.css";
 import { addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
 import "./tactics-board.css";
 import "./lineup-helper.css";
@@ -20,7 +24,7 @@ import "./board.css";
 import "./squad-formation.css";
 import "./team-decision-desk.css";
 
-export type ViewId = "overview" | "squad" | "wildcard" | "rivals" | "players" | "research" | "candidates" | "crowd";
+export type ViewId = "overview" | "matchday" | "squad" | "wildcard" | "rivals" | "players" | "research" | "candidates" | "crowd";
 export type DisplayValue = string | number | null | undefined;
 
 export interface Player {
@@ -148,6 +152,8 @@ export interface DashboardData {
   config?: { team_id?: number };
   auth?: { enabled: boolean };
   crowd?: CrowdData;
+  ticker?: TickerData;
+  watchlist?: WatchRow[];
   jev?: JevInfo;
 }
 
@@ -325,7 +331,8 @@ function renderOverview(): void {
   if (flagged.length) actions.push({ title: `Resolve ${flagged[0].name}'s availability`, text: `FPL lists ${flagged[0].chance ?? "unknown"}% chance. Do not rely on the bench until minutes are clear.`, tag: "Risk", cls: "risk" });
   actions.push({ title: "Protect the next deadline", text: `GW${escapeHtml(next.id ?? "?")} closes ${formatDate(next.deadline_time)}. Your public squad is the baseline, not unsubmitted moves.`, tag: "Plan", cls: "good" });
   actions.push({ title: "Keep differentials intentional", text: "Use the rival view to see shared picks before chasing a popular replacement.", tag: "League", cls: "warn" });
-  required<HTMLElement>("#overview").innerHTML = `<div class="decision-strip"><div class="decision-lead"><div class="metric-label">This week's call</div><div class="metric-value">${flagged.length ? "Squad cover first" : "Keep the transfer flexible"}</div><div class="small">${flagged.length ? "Availability risk is the urgent public-snapshot fact." : "No player is currently flagged by FPL."}</div></div><div><div class="metric-label">League position</div><div class="metric-value">${escapeHtml(league.rank ?? "—")}<span class="small"> / 102</span></div><div class="small">${escapeHtml(league.points ?? "—")} pts</div></div><div><div class="metric-label">Leader gap</div><div class="metric-value">${escapeHtml(league.gap_to_leader ?? "—")}</div><div class="small">${escapeHtml(league.leader?.name || "Unknown")}</div></div><div><div class="metric-label">Next deadline</div><div class="metric-value">GW${escapeHtml(next.id ?? "—")}</div><div class="small">${escapeHtml(formatDate(next.deadline_time))}</div></div></div><div class="grid two"><article class="panel"><div class="panel-head"><div><h2>Decision queue</h2><p>Facts to settle before the next transfer chat.</p></div></div><div class="action-list">${actions.map((action, index) => `<div class="action"><span class="action-index">0${index + 1}</span><div><strong>${escapeHtml(action.title)}</strong><p>${escapeHtml(action.text)}</p></div><span class="tag ${action.cls}">${escapeHtml(action.tag)}</span></div>`).join("")}</div></article><article class="panel"><div class="panel-head"><div><h2>Availability desk</h2><p>Official FPL statuses only.</p></div><button class="button-secondary" data-go="squad">Open squad</button></div>${flagged.length ? `<div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Chance</th><th>FPL note</th></tr></thead><tbody>${flagged.map((item) => `<tr><td class="player-name">${escapeHtml(item.name)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.chance ?? "—")}%</td><td class="small">${escapeHtml(item.news || "No detail")}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty"><strong>Availability clear</strong><span>No selected player is currently flagged by FPL.</span></div>'}</article></div><div class="grid equal"><article class="panel"><div class="panel-head"><div><h2>Fixture horizon</h2><p>Open the player pool to compare current form and FPL estimates.</p></div><button class="button-secondary" data-go="players">Player pool</button></div><p>The dashboard preserves the six-gameweek FPL fixture horizon in the snapshot and avoids turning fixture difficulty into a fake forecast.</p></article><article class="panel"><div class="panel-head"><div><h2>Wildcard lab</h2><p>Compare timing with clear limitations.</p></div><button class="button-secondary" data-go="wildcard">Compare timing</button></div><p>Save up to four draft squads for GW4–GW7 on this device only; Railway restarts do not erase them here. The lab calculates cost, squad size and availability risk, and displays FPL’s next-round estimate only.</p><p class="method">Future-gameweek projections are manager assumptions, not hidden model outputs.</p></article></div>`;
+  required<HTMLElement>("#overview").innerHTML = `<div class="decision-strip"><div class="decision-lead"><div class="metric-label">This week's call</div><div class="metric-value">${flagged.length ? "Squad cover first" : "Keep the transfer flexible"}</div><div class="small">${flagged.length ? "Availability risk is the urgent public-snapshot fact." : "No player is currently flagged by FPL."}</div></div><div><div class="metric-label">League position</div><div class="metric-value">${escapeHtml(league.rank ?? "—")}<span class="small"> / 102</span></div><div class="small">${escapeHtml(league.points ?? "—")} pts</div></div><div><div class="metric-label">Leader gap</div><div class="metric-value">${escapeHtml(league.gap_to_leader ?? "—")}</div><div class="small">${escapeHtml(league.leader?.name || "Unknown")}</div></div><div><div class="metric-label">Next deadline</div><div class="metric-value">GW${escapeHtml(next.id ?? "—")}</div><div class="small">${escapeHtml(formatDate(next.deadline_time))}</div></div></div><div class="grid two"><article class="panel"><div class="panel-head"><div><h2>Decision queue</h2><p>Facts to settle before the next transfer chat.</p></div></div><div class="action-list">${actions.map((action, index) => `<div class="action"><span class="action-index">0${index + 1}</span><div><strong>${escapeHtml(action.title)}</strong><p>${escapeHtml(action.text)}</p></div><span class="tag ${action.cls}">${escapeHtml(action.tag)}</span></div>`).join("")}</div></article><article class="panel"><div class="panel-head"><div><h2>Availability desk</h2><p>Official FPL statuses only.</p></div><button class="button-secondary" data-go="squad">Open squad</button></div>${flagged.length ? `<div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Chance</th><th>FPL note</th></tr></thead><tbody>${flagged.map((item) => `<tr><td class="player-name">${escapeHtml(item.name)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.chance ?? "—")}%</td><td class="small">${escapeHtml(item.news || "No detail")}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty"><strong>Availability clear</strong><span>No selected player is currently flagged by FPL.</span></div>'}</article></div><div class="grid equal"><article class="panel"><div class="panel-head"><div><h2>Wildcard lab</h2><p>Compare timing with clear limitations.</p></div><button class="button-secondary" data-go="wildcard">Compare timing</button></div><p>Save up to four draft squads for GW4–GW7 on this device only; Railway restarts do not erase them here. The lab calculates cost, squad size and availability risk, and displays FPL’s next-round estimate only.</p><p class="method">Future-gameweek projections are manager assumptions, not hidden model outputs.</p></article></div>`;
+  required<HTMLElement>("#overview").insertAdjacentHTML("beforeend", renderWatchlist(data.watchlist) + renderTicker(data.ticker));
   required<HTMLElement>("#overview").insertAdjacentHTML("beforeend", renderPrivateTeamPanel(data.private_team, data.config?.team_id) + renderTeamDecisionDesk(data.team_decision, (team, keeper) => jerseySvg(team ?? undefined, keeper)));
 }
 
@@ -419,7 +426,26 @@ function renderWildcard(): void {
   required<HTMLElement>("#wildcard").innerHTML = `<div class="panel"><div class="panel-head"><div><h2>Wildcard timing lab</h2><p>Compare a squad draft—not an invented multi-week projection.</p></div><button id="add-plan" class="button-primary">Add scenario</button></div><div class="scenario-grid">${data.plans.map(card).join("")}</div><p class="method">Cost and risk are calculated from saved player IDs. “GW next estimate” is the sum of FPL’s official <code>ep_next</code> today, regardless of target week. It is a short-horizon baseline—not a GW4–GW7 forecast. Player IDs are visible in the Player pool via the browser data endpoint for now; next iteration can add a visual player picker.</p></div>`;
 }
 
+// League threats read live standings and rivals' squads from FPL, so they load when the Rivals view opens.
+const threats: { data: ThreatsData | null; loading: boolean; error: string; loadedAt: number } = { data: null, loading: false, error: "", loadedAt: 0 };
+
+async function loadThreats(): Promise<void> {
+  if (threats.loading) return;
+  threats.loading = true;
+  try {
+    threats.data = await requestJson<ThreatsData>("/api/league");
+    threats.error = "";
+  } catch (error) {
+    threats.error = errorMessage(error);
+  } finally {
+    threats.loading = false;
+    threats.loadedAt = Date.now();
+    if (state.active === "rivals") renderRivals();
+  }
+}
+
 function renderRivals(): void {
+  if (state.active === "rivals" && !threats.loading && Date.now() - threats.loadedAt > 10 * 60_000) void loadThreats();
   const rivals = state.data?.snapshot.rivals ?? [];
   const league = state.data?.snapshot.league;
   const count = (value: unknown) => (Array.isArray(value) ? value.length : typeof value === "number" ? value : null);
@@ -427,7 +453,7 @@ function renderRivals(): void {
   const rows = rivals.map((rival) => ({ rank: rankOf(rival.rank), html: `<tr><td>${escapeHtml(rival.rank ?? "—")}</td><td class="player-name">${escapeHtml(rival.name || "Unknown")}</td><td>${escapeHtml(rival.points ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.shared) ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.user_only) ?? "—")}</td></tr>` }));
   if (league?.rank != null) rows.push({ rank: rankOf(league.rank), html: `<tr class="you-row"><td>${escapeHtml(league.rank)}</td><td class="player-name"><span class="hand-underline">You</span></td><td>${escapeHtml(league.points ?? "—")}</td><td>—</td><td>—</td></tr>` });
   rows.sort((a, b) => a.rank - b.rank);
-  required<HTMLElement>("#rivals").innerHTML = `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
+  required<HTMLElement>("#rivals").innerHTML = renderThreats(threats.data, threats.loading, threats.error) + `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
 }
 
 let pendingJevQuestion = "";
@@ -442,6 +468,41 @@ function renderCrowdView(): void {
   const box = target.querySelector<HTMLTextAreaElement>("#jev-question");
   if (box && pendingJevQuestion) { box.value = pendingJevQuestion; pendingJevQuestion = ""; }
 }
+
+// Matchday is fetched on demand (it calls FPL live), then refreshed every minute while a gameweek is live.
+const matchday: { data: MatchdayData | null; loading: boolean; error: string; loadedAt: number } = { data: null, loading: false, error: "", loadedAt: 0 };
+
+function paintMatchday(): void {
+  const target = required<HTMLElement>("#matchday");
+  target.innerHTML = renderMatchday(matchday.data, matchday.loading, matchday.error);
+  target.querySelector<HTMLButtonElement>(".md-refresh")?.addEventListener("click", () => { void loadMatchday(); });
+}
+
+function renderMatchdayView(): void {
+  paintMatchday();
+  if (state.active === "matchday" && !matchday.loading && Date.now() - matchday.loadedAt > 60_000) void loadMatchday();
+}
+
+async function loadMatchday(): Promise<void> {
+  if (matchday.loading) return;
+  matchday.loading = true;
+  if (!matchday.data) paintMatchday();
+  try {
+    matchday.data = await requestJson<MatchdayData>("/api/matchday");
+    matchday.error = "";
+  } catch (error) {
+    matchday.error = errorMessage(error);
+  } finally {
+    matchday.loading = false;
+    matchday.loadedAt = Date.now();
+    paintMatchday();
+  }
+}
+
+window.setInterval(() => {
+  const live = matchday.data?.state === "ready" && matchday.data.status === "live";
+  if (live && state.active === "matchday" && document.visibilityState === "visible" && Date.now() - matchday.loadedAt >= 55_000) void loadMatchday();
+}, 15_000);
 
 function renderPlayerPool(): void {
   const data = state.data;
@@ -463,10 +524,11 @@ function render(): void {
   renderRivals();
   renderPlayerPool();
   renderCrowdView();
+  renderMatchdayView();
   all<HTMLElement>(".view").forEach((view) => view.classList.toggle("active", view.id === state.active));
   all<HTMLButtonElement>(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.view === state.active));
   const gameweek = state.data?.lineup?.gameweek ?? state.data?.snapshot.events.next?.id;
-  const titles: Record<string, string> = { overview: "This week", squad: gameweek ? `Gameweek ${gameweek} lineup` : "Lineup", wildcard: "Wildcard lab", rivals: "Rivals", players: "Player pool", research: "Research desk", candidates: "Candidate lens", crowd: "What the crowd thinks" };
+  const titles: Record<string, string> = { overview: "This week", matchday: state.data?.snapshot.events.current?.id ? `Gameweek ${state.data.snapshot.events.current.id} matchday` : "Matchday", squad: gameweek ? `Gameweek ${gameweek} lineup` : "Lineup", wildcard: "Wildcard lab", rivals: "Rivals", players: "Player pool", research: "Research desk", candidates: "Candidate lens", crowd: "What the crowd thinks" };
   required<HTMLElement>("main h1").textContent = titles[state.active] ?? "FPL Brief";
   all<HTMLButtonElement>("[data-go]").forEach((button) => {
     button.onclick = () => { pendingJevQuestion = button.dataset.jevAsk ?? ""; activate(button.dataset.go as ViewId); };

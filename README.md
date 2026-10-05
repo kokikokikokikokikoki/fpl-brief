@@ -141,7 +141,17 @@ Claude can also capture it for you from its browser pane.
    - Questions are capped at `JEV_DAILY_LIMIT` a day (default 20).
    - Jev answers only signed-in visitors. The server builds the context from its
      own data.
-6. Make the real changes in the FPL app; this dashboard never changes your team.
+6. **Matchday** shows the current gameweek as it happens, straight from FPL's live
+   feed:
+   - your points on the board, with the armband and auto-subs marked;
+   - projected bonus (from BPS) and projected auto-subs until FPL confirms them;
+   - a live table of you and your compared rivals, with rank movement;
+   - the "swing players" winning or costing you ground against them.
+   It refreshes every minute while games are on. Below it, **Points left on the
+   table** replays every finished gameweek against the best XI and captain you
+   could have picked from the same 15, split into armband and lineup cost, and
+   compares your bench points with your rivals'.
+7. Make the real changes in the FPL app; this dashboard never changes your team.
 
 ### Container image (Railway-compatible)
 
