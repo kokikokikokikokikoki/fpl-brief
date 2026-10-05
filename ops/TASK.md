@@ -1,4 +1,223 @@
-# Active task — Stage 2 follow-up: clean-sheet calibration, backtest bias, collector isolation
+# Active task — Stage 4: rival maths (effective ownership, captaincy vs rivals, finish odds)
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
+**Status:** READY_FOR_PROGRAMMER
+**Date:** 2026-10-05
+**Overseer request:** "after stage 3 do stage 4 and 5" (2026-10-05). Design source: `research/fpl-maths.md` §4. The existing League threats panel (`fpl_brief/league.py` `threats`, `/api/league`) already fetches rivals' picks, history and chips through the shared cache. Build on it rather than re-fetching.
+
+## Objective
+
+In the mini-league only the difference from rivals counts. Show how each choice moves that difference, and how likely the manager is to finish ahead of each rival and to win the league.
+
+## Required implementation
+
+1. **`fpl_brief/rivals.py` (new, stdlib, pure functions, injectable random seed).**
+   - **Inputs:** the `threats` data (rivals' latest known picks, captains, chips used, history), the manager's own squad and lineup, and each player's next-GW and 6-GW xP from `projection.build(..., model="own")`.
+   - **Effective ownership (EO).** For each player, `EO_p = (1/R) Σ_r mult_{r,p}`:
+     - 0 if not owned or benched (unless the rival's chip is BB);
+     - 1 if started, 2 if captain, 3 if triple captain.
+     - **Before the deadline:** use the rivals' latest known picks. A rival's captain is assumed to be their last captain if they still own him, otherwise their highest next-GW-xP player. Label this as an assumption.
+     - The manager's own multipliers come from the captured account lineup when usable, otherwise from the public snapshot.
+   - **Expected swing next GW:** `Σ_p (my_mult_p − mult_{r,p}) · xP_p` per rival, and against the field (EO). List the top 5 players driving it each way.
+   - **Captain table:** for each of the manager's top-5 next-GW-xP starters as captain, give:
+     - the expected difference against the field and against each of the top-3 rivals;
+     - from a one-GW Monte Carlo (10,000 sims, fixed seed), P(this captain beats the field's captaincy outcome) and P(gain ≥ 0) against each of the top-3 rivals.
+     - **Shared draws:** each player's points are drawn once per sim and reused for everyone who owns him.
+     - **Points distribution:** Normal(xP, sd) floored at −2 and rounded. Take `sd` per position from this season's per-GW points spread (`data/player_history.json`), shrunk, and document it.
+     - Flag the research's community heuristic as a heuristic: a differential captain when the favourite's EO > 75%, the alternative's EO < 50% and the xP gap < 1.5.
+   - **Finish odds.**
+     - **Pairwise:** `P(finish ahead of r) ≈ Φ((G + μ)/(σ_week·√n))`.
+       - G is the current points gap.
+       - μ is the expected remaining edge: (your shrunk mean − theirs) × n. Shrink weekly means towards the league mean with k = 5 GWs.
+       - σ_week is the standard deviation of the weekly points difference from both managers' `history`, shrunk towards the pooled value.
+       - n is the GWs remaining: 38 − current finished GW.
+       - Compute `Φ` with `math.erf`.
+     - **Title odds:** Monte Carlo over the remaining season (10,000 sims, fixed seed). Each remaining week samples a past GW index for all managers at once, preserving the weekly correlation. It adds each manager's deviation from their own mean to their shrunk mean, minus their average hit cost.
+     - **Output:** P(1st) for the manager and each rival, and the manager's expected final rank.
+     - **Labels:** label the method as an approximation. It ignores chips left and transfer plans, so mention chips left per rival as context.
+   - **Mode hint:** z = (G + μ)/(σ_week·√n) against the leader. Explain in plain words when to protect the position (z > 0.5: copy the field, template captain), when to chase (z < −0.5: differentials, a contrarian captain worth considering), and otherwise when it's balanced.
+2. **Server:** add `GET /api/rivals` behind the existing gate. It reuses the League threats fetch and its cache, so no new endpoints are fetched beyond what `threats` uses. Failures degrade with a warning, the same as `/api/league`.
+3. **UI:** a "Rival maths" panel in the Rivals view, loaded lazily (at most once every 10 min), in the existing visual style. It shows:
+   - the mode hint;
+   - the title-odds bar;
+   - per rival: gap, P(finish ahead), next-GW expected swing with its drivers, and chips left;
+   - the captain table with EO;
+   - the manager's "shield" (high-EO players owned) and their differentials, each with xP.
+
+   Everything is escaped. Every probability is labelled as an estimate from a simple model.
+4. **Tests (`tests/test_rivals.py`):**
+   - the EO arithmetic (captain, TC, BB bench, benched);
+   - the swing sign: you captain a player the rival doesn't own;
+   - shared-draw Monte Carlo: identical squads give a zero difference in every sim;
+   - Φ against known values, and the pairwise odds' monotonicity in the gap;
+   - the title Monte Carlo is deterministic with a seed and sums to 1;
+   - shrinkage with little history;
+   - the assumed captain before the deadline;
+   - an endpoint test with a fake getter;
+   - a node render test for escaping and states.
+
+## Allowed paths
+
+`fpl_brief/rivals.py`, `fpl_brief/league.py` (small helpers or exposure of already-fetched data only), `dashboard.py`, `dashboard/rival-maths.ts|css` (new), `dashboard/app.ts` (mount and lazy load only), `tests/test_rivals.py`, `tests/test_dashboard.py`, `tests/test_rival_maths.mjs` (new), `README.md`, `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only).
+
+Do not commit, and do not run the fetcher.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs`
+
+## Constraints
+
+- Stdlib only.
+- Read-only public endpoints already used by `threats`.
+- Probabilities are labelled as estimates from simple models, never as certainties.
+
+---
+
+# Previous task — Stage 3 fix: free-transfer valuation and honest plan ranking
+
+**Owner:** Programmer (Opus 5.5 subagent, the same one who built Stage 3). Re-review by a separate Opus 5.5 subagent.
+**Status:** APPROVED (re-review PASS 2026-10-05; post-review polish applied, full suite 274 OK; local only)
+**Date:** 2026-10-05
+**Source:** Stage 3 review FAIL (`ops/REVIEW.md`). The objective adds `Σ_w 0.85^w · 1.5 · fts[w+1]` (`fpl_brief/optimise.py:163-165`), so a banked FT earns value every week it stays unused. Its value inside the horizon is already captured when it is used later, so FTs are credited twice. In the real run, plan 1 (roll, +7.09 points vs hold) outranked plan 2 (move now, +11.27), and both end with 5 FTs.
+
+## Supervisor ruling
+
+Replaces ruling 1. It is technical, so it's recorded here and in DECISIONS.md.
+
+- **One-time FT value:** a free transfer is valued **once**. Only FTs carried out of the horizon (the count available after the last GW) earn `FT_VALUE` each, undecayed beyond the last GW's weight, using the diminishing list from research §3 (`{2: 2.0, 3: 1.6, 4: 1.3, 5: 1.1}` per marginal FT; the 1st FT is 0 since you always get one).
+- **Minimum gain per transfer:** to stop the solver burning FTs on tiny gains inside the horizon, add a named `MIN_TRANSFER_GAIN = 0.5` decayed points per transfer, subtracted in the objective. Document it as a tunable heuristic.
+- The bank value (`itb_value`) stays, applied once on the end-of-horizon bank only.
+
+## Required implementation
+
+1. **Objective (`fpl_brief/optimise.py`):** implement the ruling. Keep the rest of the ILP unchanged.
+2. **Breakdown (blocking item 1):** each plan returns its result against holding:
+   - `points_gain`: decayed XI, captain and bench points;
+   - `ft_value`, `bank_value`, `transfer_penalty` and `hits`;
+   - `objective_gain`, which must equal the sum of the parts within 1e-6.
+3. **Plan cards (blocking items 2–3):**
+   - Show "Points gain vs holding" first and prominently, then "Planner score vs holding" with the breakdown.
+   - Mark the plan with the most estimated points.
+   - Remove "best overall" (`dashboard/transfer-planner.ts:84`, `:338`).
+   - Rewrite the method text to explain the ranking: points, minus hits and a small per-transfer threshold, plus a one-time value for free transfers and bank kept at the end.
+   - The intro says "Holding scores X points over the horizon".
+   - Everything stays escaped.
+4. **Tests:**
+   - The breakdown parts sum to `objective_gain`.
+   - Two plans ending with equal FTs rank by points.
+   - Holding one FT across the horizon is worth exactly the one-time value, not a per-week sum.
+   - `MIN_TRANSFER_GAIN` blocks a +0.2 move.
+   - The card shows both figures, escaped.
+   - Update the existing tests that encoded the per-week value.
+5. **Housekeeping:** the Stage 3 task below gets ruling 3 recorded. Requirement 4 now reads `requirements-planner.txt`, which is added to its allowed paths. That edit is done by the Supervisor, so the Programmer doesn't touch it.
+6. **Re-run on the real squad (own model):** report the new top 3 with the breakdown.
+
+## Allowed paths
+
+`fpl_brief/optimise.py`, `dashboard/transfer-planner.ts|css`, `tests/test_optimise.py`, `tests/test_transfer_planner.mjs`, `README.md` (planner method text only), `ops/IMPLEMENTATION_REPORT.md` (append a "Fix round" section), `ops/TASK.md` (status line of this task only). Do not commit.
+
+## Test command
+
+As for Stage 3: `python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs`
+
+---
+
+# Previous task — Stage 3: multi-week transfer optimiser (integer linear program)
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort; it adds a runtime dependency to the public deploy image, so the review must check that build too).
+**Status:** APPROVED via the fix task above (first review FAIL on FT valuation, fixed and re-reviewed PASS 2026-10-05)
+**Date:** 2026-10-05
+**Overseer request:** "start stage 3" (2026-10-05). The Overseer was told beforehand that this stage adds `highspy` (which brings in numpy). Design source: `research/fpl-maths.md` §3 (variables, constraints, objective, parameter table, pitfalls) and §6 Stage 3.
+
+## Objective
+
+Suggest the best transfer plans over the next 6 GWs:
+- transfers only, with no chips this stage;
+- from the manager's real squad, selling prices, bank and free transfers;
+- the top 3 plans, each explained.
+
+`plan.py` stays the rule checker: every suggested plan must pass `plan.build`.
+
+## Required implementation
+
+1. **`fpl_brief/optimise.py` (new).**
+   - **Model:** implement the §3 ILP with `highspy`, for transfers only, over horizon W = 6. Variables per player and GW:
+     - `squad`, `lineup`, `captain`, `vicecap`, `bench[o]`, `transfer_in` and `transfer_out`;
+     - `itb[w]`, `fts[w]` and `hits[w]`.
+   - **Constraints:**
+     - squad of 15 split 2/5/5/3, at most 3 per club;
+     - legal XI (1 GK, 3–5 DEF, 2–5 MID, 1–3 FWD), with one captain and one vice-captain, both in the XI;
+     - bench ordering, with a GK in the GK slot;
+     - squad continuity from week to week;
+     - budget with real selling prices from the account data (`private.prices`): players bought inside the horizon sell at the price paid;
+     - free-transfer rollover clamped to 1–5, so the next GW gets the account's actual free transfers;
+     - hits = max(0, transfers − FTs) × 4;
+     - `no_transfer_last_gws = 2`.
+   - **Objective:** decayed sum of XI xP + captain + `vcap_weight` × vice + bench weights, − 4·hits, + `ft_value`·(banked FTs), + `itb_value`·itb.
+   - **Defaults** are named constants, taken from the §6 Stage 3 settings: decay 0.85, FT value 1.5, bench GK .03 / S1 .25 / S2 .08 / S3 .02, vice 0.05, itb 0.08 per £1m.
+   - **xP input:**
+     - `model="fpl"` (Stage 1) or `"own"` (Stage 2), taken from `projection.build`;
+     - **default `"own"` for the optimiser only**, because Stage 1's `ep_next` carries 30-day form across six weeks, which the research flags as a pitfall for solvers;
+     - the UI states clearly which model was used and lets the user switch.
+   - **Player pool:** pre-filter to about 150 players: the manager's 15, plus the top players by horizon xP per position, plus price-efficient options. Make it deterministic and document the rule.
+   - **Players flagged out:**
+     - out next GW: not allowed in the next GW's XI;
+     - otherwise: they follow their projection.
+   - **Top 3 plans:** solve, add a "not this exact set of transfers" cut, and re-solve, up to 3 distinct plans.
+   - **Per plan, return:**
+     - the moves by GW (out → in, with prices);
+     - hits;
+     - FTs and bank week by week;
+     - XI xP per GW, captain per GW and horizon xP;
+     - the gain over a "no transfers" baseline solved the same way.
+   - **Run limits:** a solve time limit of 10 s per plan, and deterministic seeds/options.
+   - **Optional dependency:** the `highspy` import is optional. If it's missing, return `{"state": "unavailable", "reason": "Planner needs the highspy package"}`.
+2. **Server:** `GET /api/optimise?model=own|fpl` sits behind the existing gate and loopback rules, the same as the private data. It needs fresh account data (`usable`). If the data isn't usable, it returns the same blocked message the lens uses. Cache the result per snapshot, account capture and model.
+3. **UI:** a "Transfer planner" panel in the Candidate lens view, kept consistent with the existing style.
+   - **Controls:** a model toggle and a "Suggest plans" button.
+   - **Plans:** three plan cards, each showing moves by GW, hits, horizon gain against holding, and the FT/bank path.
+   - **Try on board:** a button sends the plan's GW6 moves to the existing planned-transfers strip, which uses `plan.py`.
+   - **Labels:** a method note says this is an optimisation over estimates and not advice, names the model, and says chips are not included.
+   - **Escaping:** everything is escaped.
+4. **Dependency and deploy:**
+   - Add `highspy>=1.15` to `requirements-planner.txt` (Supervisor ruling 3, 2026-10-05: kept out of `requirements.txt` so the hosted image stays lean; the hosted planner answers "unavailable" because account data is local-only). If the pinned versions need numpy, that's fine.
+   - Check that a binary wheel exists for **Python 3.14 on linux x86_64** (the Dockerfile base is `python:3.14-slim`) and for this Windows machine. Use `pip download --only-binary=:all: --platform ... --python-version 3.14` or the PyPI JSON.
+   - Install it locally with pip.
+   - Report the image size impact. If Docker is available locally, `docker build`. Otherwise, estimate from the wheel sizes and say so.
+5. **Tests:**
+   - Add `tests/test_optimise.py`, skipped cleanly when `highspy` is missing. Cover:
+     - a tiny synthetic pool where the optimal transfer is known;
+     - the budget and selling-price rule;
+     - the 3-per-club rule;
+     - FT rollover (holding banks an FT);
+     - a hit taken only when it pays back within the decayed horizon;
+     - no transfers in the last 2 GWs;
+     - 3 distinct plans;
+     - every plan passes `plan.build`;
+     - the unavailable path when the import fails.
+   - Add an endpoint test with fake data.
+   - Add a node/vm or existing-harness check that the panel escapes and renders its states.
+
+## Allowed paths
+
+`fpl_brief/optimise.py`, `fpl_brief/projection.py` (read-only helpers only if needed), `dashboard.py`, `dashboard/*.ts|css|html` (Candidate lens view and the planned-transfers hand-off only), `requirements.txt`, `requirements-planner.txt`, `Dockerfile` (only if the build needs it), `tests/test_optimise.py`, `tests/test_dashboard.py`, `tests/*.mjs` (new panel test only), `README.md`, `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only).
+
+You may `pip install highspy`. Do not commit. Do not run the fetcher.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs`
+
+## Constraints
+
+- Read-only. It never makes transfers or writes to FPL.
+- Every output is labelled as an estimate-driven suggestion.
+- The rest of the app works with `highspy` absent.
+
+---
+
+# Previous task — Stage 2 follow-up: clean-sheet calibration, backtest bias, collector isolation
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
 **Status:** APPROVED (review PASS 2026-10-05; recalibration re-check due ~GW10, goal-level shrinkage first)

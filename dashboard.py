@@ -26,6 +26,7 @@ from fpl_brief import crowd as crowd_data
 from fpl_brief import jev_ask
 from fpl_brief import matchday
 from fpl_brief import league as league_data
+from fpl_brief import optimise as transfer_optimiser
 from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
 from fpl_brief import web_session
@@ -56,6 +57,10 @@ JEV_USAGE = {"day": None, "count": 0}
 JEV_LOCK = threading.Lock()
 # Matchday reads public FPL endpoints through a shared, bounded TTL cache (tests replace this getter).
 MATCHDAY_GET = matchday.cached_getter()
+# Transfer planner results per (snapshot time, account capture time, model); solves are serialised (CPU-bound).
+OPTIMISE_CACHE = {}
+OPTIMISE_CACHE_SIZE = 4
+OPTIMISE_LOCK = threading.Lock()
 
 
 def jev_daily_limit():
@@ -686,6 +691,35 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return None
 
+    def optimise(self, snapshot, catalog, model):
+        """Top transfer plans (read-only estimates). Needs fresh account data, like the Candidate Lens and planned transfers."""
+        if model not in transfer_optimiser.MODEL_LABELS:
+            return self.send_json({"error": "model must be 'own' or 'fpl'"}, HTTPStatus.BAD_REQUEST)
+        if not transfer_optimiser.available():
+            return self.send_json(dict(transfer_optimiser.UNAVAILABLE))
+        config = load_config()
+        decision = assess(snapshot, config)
+        if decision["status"] == "blocked":
+            return self.send_json({"state": "blocked", "reason": "Transfer planner is blocked: " + " ".join(decision["blockers"])})
+        private = self.private_data(config, snapshot)
+        if private.get("usable") is not True:
+            return self.send_json({"state": "blocked", "reason": ("The transfer planner needs a fresh capture of your FPL account "
+                                                                  "(selling prices, bank and free transfers). " + str(private.get("message") or "")).strip()})
+        key = (snapshot.get("generated_at_utc"), private.get("captured_at_utc"), model)
+        with OPTIMISE_LOCK:
+            if key not in OPTIMISE_CACHE:
+                freshness = snapshot_freshness(snapshot, config.get("stale_after_hours", 8))
+                try:
+                    result = transfer_optimiser.build(snapshot, catalog, private, freshness, model, history=self.player_history())
+                except Exception:
+                    return self.send_json({"state": "unavailable", "reason": "The planner hit an unexpected error with this data. Try again after refreshing FPL data."})
+                if result.get("state") != "ready":
+                    return self.send_json(result)
+                while len(OPTIMISE_CACHE) >= OPTIMISE_CACHE_SIZE:
+                    OPTIMISE_CACHE.pop(next(iter(OPTIMISE_CACHE)))
+                OPTIMISE_CACHE[key] = result
+            return self.send_json(OPTIMISE_CACHE[key])
+
     def host_is_local(self):
         host = (self.headers.get("Host") or "").strip().lower()
         hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
@@ -908,6 +942,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"state": "invalid", "reason": str(error)}, HTTPStatus.BAD_REQUEST)
             result = transfer_plan.build(snapshot or {}, catalog, self.private_data(config, snapshot or {}), freshness, pairs, history=self.player_history())
             return self.send_json(result, HTTPStatus.OK if result["state"] == "ready" else HTTPStatus.UNPROCESSABLE_ENTITY)
+        if path == "/api/optimise":
+            return self.optimise(snapshot or {}, catalog, parse_qs(parsed.query).get("model", [transfer_optimiser.DEFAULT_MODEL])[0])
         if path.startswith("/api/players/"):
             try:
                 player_id = int(path.rsplit("/", 1)[1])

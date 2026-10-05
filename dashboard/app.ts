@@ -10,9 +10,11 @@ import { renderMatchday, type MatchdayData } from "./matchday";
 import "./matchday.css";
 import { renderThreats, renderTicker, renderWatchlist, type ThreatsData, type TickerData, type WatchRow } from "./league-threats";
 import "./league-threats.css";
-import { addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
+import { MAX_PLANNED, addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
 import "./tactics-board.css";
 import "./lineup-helper.css";
+import { mountPlanner } from "./transfer-planner";
+import "./transfer-planner.css";
 import { renderPrivateTeamPanel, renderTeamDecisionDesk } from "./team-decision-desk";
 import "@fontsource/barlow/400.css";
 import "@fontsource/barlow/600.css";
@@ -185,6 +187,10 @@ export interface DashboardRuntime {
   kit?(teamId: number | null | undefined): string;
   /** Add OUT → IN to the browser-local transfer plan and open the board; returns an error message or null. */
   planTransfer?(out: number, incoming: number): string | null;
+  /** Replace the browser-local transfer plan with these moves and open the board; returns an error message or null. */
+  replacePlan?(moves: PlannedTransfer[]): string | null;
+  /** Render the transfer planner panel into the Candidate lens view. */
+  mountPlanner?(root: HTMLElement): void;
 }
 
 interface StorageLike {
@@ -364,6 +370,18 @@ function planTransfer(out: number, incoming: number): string | null {
   const result = addTransfer(currentPlan(), { out, in: incoming });
   if (result.error) return result.error;
   setPlan(result.plan);
+  activate("squad");
+  return null;
+}
+
+function replacePlan(moves: PlannedTransfer[]): string | null {
+  if (planGameweek() === undefined || !state.data) return "The next gameweek is unknown; refresh FPL data.";
+  if (moves.length > MAX_PLANNED) return `Plan at most ${MAX_PLANNED} transfers at once.`;
+  const owned = new Set((state.data.snapshot.squad_snapshot.picks ?? []).map((pick) => pick.element));
+  if (!moves.every((move) => Number.isInteger(move.out) && Number.isInteger(move.in) && owned.has(move.out) && !owned.has(move.in))) {
+    return "That plan no longer matches your saved squad; refresh FPL data.";
+  }
+  setPlan(moves.map((move) => ({ out: move.out, in: move.in })));
   activate("squad");
   return null;
 }
@@ -638,7 +656,7 @@ async function loadDashboard(): Promise<void> {
   }
 }
 
-const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, planTransfer, kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
+const runtime: DashboardRuntime = { state, esc: escapeHtml, activate, status, planTransfer, replacePlan, mountPlanner: (root) => mountPlanner(root, { replacePlan, status }), kit: (teamId) => jerseySvg(teamId ? teamMap().get(teamId)?.short_name : undefined) };
 deskTools = mountDeskTools(runtime);
 refreshDecisionStates = mountDecisionStates(() => state.data);
 

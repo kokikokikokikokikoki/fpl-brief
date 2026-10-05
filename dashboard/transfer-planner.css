@@ -1,0 +1,15 @@
+/* Transfer planner panel in the Candidate lens view. */
+.planner-cards { display: grid; gap: 14px; margin-top: 10px; }
+.planner-card { padding: 14px 16px; border: 1.5px solid var(--rule); border-radius: 12px; background: #fff; }
+.planner-card header { margin-bottom: 8px; }
+.planner-card h3 { margin: 0 0 4px; }
+.planner-card p { margin: 4px 0; }
+.planner-gain strong { font-size: 20px; }
+.planner-weeks th[scope="row"] { white-space: nowrap; }
+.planner-weeks td, .planner-weeks th { padding: 8px; }
+.planner-card .button-secondary { margin-top: 10px; }
+.planner .plan-out { text-decoration: line-through; }
+.planner .plan-in { font-weight: 700; }
+.planner .plan-bad { color: #9A2B1F; }
+.planner-most { display: inline-block; margin: 0 0 4px; padding: 2px 8px; border-radius: 999px; background: var(--enamel-shade); font-size: 13px; font-weight: 700; }
+.planner-score strong { color: var(--ink); }

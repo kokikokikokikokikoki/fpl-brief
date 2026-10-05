@@ -278,6 +278,13 @@ export function mountDeskTools(runtime: DashboardRuntime): {
     runtime.activate("candidates");
     const view = required<HTMLElement>("#candidates");
     view.innerHTML = `<article class="panel"><div class="panel-head"><div><h2>Candidate Lens</h2><p>Legal same-position replacements only. It ranks visible inputs; both "Next 6 GWs" columns are estimates, not forecasts.</p></div></div><div class="lens-controls"><label>Replace<select id="candidate-replace">${squadOptions()}</select></label><label>Minimum minutes<select id="candidate-minutes"><option value="0">Any minutes</option><option value="450">450+</option><option value="900">900+</option></select></label><label>Sort by<select id="candidate-sort"><option value="xgi">xGI per 90</option><option value="xp6">Next 6 GWs (FPL-based estimate)</option><option value="xp6own">Next 6 GWs (our model)</option></select></label><button id="candidate-run" class="button-primary">Find candidates</button></div><div id="candidate-output" class="lens-output"><p class="small">Budget uses the outgoing player's selling price plus bank from your captured FPL account data. Without a fresh capture, Candidate Lens stays blocked rather than guessing.</p></div></article>`;
+    if (runtime.mountPlanner) {
+      const planner = document.createElement("article");
+      planner.className = "panel planner";
+      planner.id = "transfer-planner";
+      view.append(planner);
+      runtime.mountPlanner(planner);
+    }
     if (replacePlayerId !== undefined) {
       const select = required<HTMLSelectElement>("#candidate-replace", view);
       if (Array.from(select.options).some((option) => option.value === String(replacePlayerId))) select.value = String(replacePlayerId);

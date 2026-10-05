@@ -1,3 +1,4 @@
 # Runtime dependencies. Only the optional in-app Jev feature needs these; the dashboard and
-# data collection run on the standard library.
+# data collection run on the standard library. The Transfer planner's solver is local-only:
+# see requirements-planner.txt.
 anthropic>=1.8,<2

@@ -1140,6 +1140,77 @@ check(!desk.renderPrivateTeamPanel({ state: "missing", usable: false, message: "
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class OptimiseEndpointTests(unittest.TestCase):
+    """GET /api/optimise: gated like the private data, needs usable account data, cached per snapshot/capture/model."""
+
+    def setUp(self):
+        from test_plan import build as plan_fixture
+        self.snapshot, self.catalog, self.private = plan_fixture(bank=20)
+        now = datetime.now(timezone.utc)
+        self.snapshot["generated_at_utc"] = now.isoformat()
+        self.snapshot["events"]["next"]["deadline_time"] = (now + timedelta(days=2)).isoformat()
+        self.private["captured_at_utc"] = now.isoformat()
+        for target, name, value in ((dashboard, "load_config", lambda: {"team_id": 42, "stale_after_hours": 8}),
+                                    (dashboard.Handler, "api_data", lambda handler: (self.snapshot, self.catalog)),
+                                    (dashboard.Handler, "private_data", lambda handler, config, snapshot: self.private),
+                                    (dashboard.Handler, "player_history", lambda handler: None),
+                                    (dashboard, "OPTIMISE_CACHE", {})):
+            patcher = patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def get(self, path, host=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=60)
+        try:
+            connection.request("GET", path, headers={"Host": host or f"127.0.0.1:{self.server.server_port}"})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+    @unittest.skipUnless(dashboard.transfer_optimiser.available(), "highspy is not installed")
+    def test_ready_plans_are_cached_per_model(self):
+        real = dashboard.transfer_optimiser.build
+        with patch.object(dashboard.transfer_optimiser, "build", side_effect=real) as build:
+            status, first = self.get("/api/optimise?model=fpl")
+            self.assertEqual(status, 200)
+            self.assertEqual(first["state"], "ready", first.get("reason"))
+            self.assertEqual(first["model"], "fpl")
+            self.assertTrue(first["plans"])
+            self.assertEqual(self.get("/api/optimise?model=fpl")[1], first)
+            self.assertEqual(build.call_count, 1)
+            status, own = self.get("/api/optimise")  # default model: ours, unavailable without player history
+            self.assertEqual((status, own["state"]), (200, "blocked"))
+            self.assertIn("player history", own["reason"])
+            self.assertEqual(build.call_count, 2)
+
+    def test_bad_model_and_dns_rebinding_are_refused(self):
+        self.assertEqual(self.get("/api/optimise?model=<x>")[0], 400)
+        self.assertEqual(self.get("/api/optimise?model=fpl", host="evil.example")[0], 403)
+
+    def test_unusable_account_data_is_blocked_with_its_message(self):
+        self.private = {"usable": False, "state": "stale", "message": "Captured account data is older than 24 hours."}
+        status, result = self.get("/api/optimise?model=fpl")
+        self.assertEqual((status, result["state"]), (200, "blocked"))
+        self.assertIn("fresh capture of your FPL account", result["reason"])
+        self.assertIn("older than 24 hours", result["reason"])
+        self.assertNotIn("plans", result)
+
+    def test_missing_highspy_reports_unavailable(self):
+        with patch.object(dashboard.transfer_optimiser, "highspy", None):
+            self.assertEqual(self.get("/api/optimise?model=fpl"), (200, {"state": "unavailable", "reason": "Planner needs the highspy package"}))
+
+    def test_blocked_snapshot_is_refused(self):
+        self.snapshot["events"]["next"]["deadline_time"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        status, result = self.get("/api/optimise?model=fpl")
+        self.assertEqual(result["state"], "blocked")
+        self.assertIn("Transfer planner is blocked", result["reason"])
+
+
 class PasswordGateTests(unittest.TestCase):
     PASSWORD = "correct horse battery staple"
 

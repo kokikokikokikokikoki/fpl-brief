@@ -1,0 +1,3 @@
+# Optional local-only dependency for the Transfer planner (HiGHS integer programming; brings in numpy).
+# Not installed in the hosted image: the planner needs account data, which stays on this machine.
+highspy>=1.15
