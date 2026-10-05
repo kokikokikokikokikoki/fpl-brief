@@ -1,7 +1,8 @@
 """Stage 1 multi-gameweek projections: FPL's ``ep_next`` re-weighted by a fixture model.
 
 Team attack/defence ratings are fitted from this season's results (xG where known, goals
-otherwise), shrunk towards league average. Each player's ``ep_next`` is divided by his
+otherwise), shrunk towards league average. The league scoring level is anchored to actual goals,
+and clean-sheet chances allow for the uncertainty left in the shrunk ratings. Each player's ``ep_next`` is divided by his
 next-gameweek fixture multiplier to remove that fixture's difficulty, then multiplied by
 the multiplier of each later fixture. Everything here is an estimate, not a forecast.
 """
@@ -45,20 +46,44 @@ def _matches(results):
     return sorted(rows, key=lambda row: (str(row[0]), str(row[1]), row[2], row[3]))
 
 
+def goal_level(results):
+    """League goals per club per match from actual scores; None when there are no goals yet."""
+    total = count = 0
+    for row in results or []:
+        if not isinstance(row, dict) or row.get("home") is None or row.get("away") is None or row.get("home") == row.get("away"):
+            continue
+        goals = [_number(row.get("home_goals")), _number(row.get("away_goals"))]
+        if any(value is None or value < 0 for value in goals):
+            continue
+        total, count = total + sum(goals), count + 2
+    return total / count if count and total > 0 else None
+
+
+def _average(teams, base, matches=0, prior=None):
+    prior = PRIOR_MATCHES * base if prior is None else prior
+    return {"attack": {team: 1.0 for team in teams}, "defence": {team: 1.0 for team in teams}, "home": 1.0,
+            "base": base, "level": base, "attack_shape": {}, "defence_shape": {}, "prior_shape": prior, "matches": matches}
+
+
 def team_ratings(results, team_ids=()):
     """Fit multiplicative attack/defence ratings and a home factor. Empty input gives all 1.0.
 
-    λ_home = base · A_home · D_away · H and λ_away = base · A_away · D_home / H, where D > 1 is
+    λ_home = level · A_home · D_away · H and λ_away = level · A_away · D_home / H, where D > 1 is
     a leakier defence. Each club gets PRIOR_MATCHES pseudo-matches at league average.
+
+    The ratings are relative and come from xG. ``level`` (the league's goals per club per match) comes
+    from actual goals, because xG ran about 8% above goals in 2026/27 GW1–5 and λ_against was too high.
+    ``attack_shape``/``defence_shape`` are each club's pseudo-count plus observed total (the Gamma
+    shape implied by the shrinkage), used for the rating uncertainty in clean-sheet chances.
     """
     matches = _matches(results)
     teams = sorted(set(team_ids) | {team for row in matches for team in row[:2]}, key=str)
     attack, defence, home = {team: 1.0 for team in teams}, {team: 1.0 for team in teams}, 1.0
     if not matches:
-        return {"attack": attack, "defence": defence, "home": 1.0, "base": DEFAULT_GOALS, "matches": 0}
+        return _average(teams, DEFAULT_GOALS)
     base = sum(row[2] + row[3] for row in matches) / (2 * len(matches))
     if base <= 0:
-        return {"attack": attack, "defence": defence, "home": 1.0, "base": DEFAULT_GOALS, "matches": len(matches)}
+        return _average(teams, DEFAULT_GOALS, len(matches))
     prior = PRIOR_MATCHES * base
     for _ in range(ITERATIONS):
         scored, expected = {team: prior for team in teams}, {team: prior for team in teams}
@@ -85,19 +110,51 @@ def team_ratings(results, team_ids=()):
         away_raw = sum(base * attack[a] * defence[h] for h, a, _, _ in matches)
         # The home factor is shrunk the same way, so one early result can't explain everything.
         home = math.sqrt(((home_goals + prior) / (home_raw + prior)) / ((away_goals + prior) / (away_raw + prior)))
-    return {"attack": attack, "defence": defence, "home": home, "base": base, "matches": len(matches)}
+    scored, conceded = {team: prior for team in teams}, {team: prior for team in teams}
+    for h, a, gh, ga in matches:
+        scored[h] += gh
+        scored[a] += ga
+        conceded[h] += ga
+        conceded[a] += gh
+    return {"attack": attack, "defence": defence, "home": home, "base": base, "level": goal_level(results) or base,
+            "attack_shape": scored, "defence_shape": conceded, "prior_shape": prior, "matches": len(matches)}
+
+
+def combined_shape(attack_shape, defence_shape):
+    """Gamma shape matching the spread of A_opp · D_team when each is Gamma(shape) with mean 1.
+
+    CV² of a product of independent mean-1 Gammas is 1/a + 1/d + 1/(a·d).
+    """
+    return 1 / (1 / attack_shape + 1 / defence_shape + 1 / (attack_shape * defence_shape))
+
+
+def zero_chance(lam, shape=None):
+    """P(no goals) when goals ~ Poisson(λ) and λ itself is Gamma-uncertain with ``shape`` (negative binomial).
+
+    With no shape this is the plain Poisson e^-λ. A finite shape is always a little higher (Jensen), which is
+    the clean-sheet chance the shrunk ratings actually imply.
+    """
+    if lam <= 0:
+        return 1.0
+    return math.exp(-lam) if not shape else (1 + lam / shape) ** -shape
 
 
 def fixture_view(ratings, team, opponent, is_home):
     """Expected goals for/against, clean-sheet chance and multipliers for one club in one fixture."""
-    base, home = ratings["base"], ratings["home"]
+    level, home = ratings.get("level", ratings["base"]), ratings["home"]
     venue = home if is_home else 1 / home
     attack, defence = ratings["attack"], ratings["defence"]
-    lambda_for = base * attack.get(team, 1.0) * defence.get(opponent, 1.0) * venue
-    lambda_against = base * attack.get(opponent, 1.0) * defence.get(team, 1.0) / venue
-    cs_prob = math.exp(-lambda_against)
-    return {"lambda_for": lambda_for, "lambda_against": lambda_against, "cs_prob": cs_prob,
-            "att_mult": lambda_for / base, "cs_mult": cs_prob / math.exp(-base)}
+    lambda_for = level * attack.get(team, 1.0) * defence.get(opponent, 1.0) * venue
+    lambda_against = level * attack.get(opponent, 1.0) * defence.get(team, 1.0) / venue
+    prior = ratings.get("prior_shape")
+    shape = reference = None
+    if prior:
+        attack_shapes, defence_shapes = ratings.get("attack_shape") or {}, ratings.get("defence_shape") or {}
+        shape = combined_shape(attack_shapes.get(opponent, prior), defence_shapes.get(team, prior))
+        reference = combined_shape(*(sum(values.values()) / len(values) if values else prior for values in (attack_shapes, defence_shapes)))
+    cs_prob = zero_chance(lambda_against, shape)
+    return {"lambda_for": lambda_for, "lambda_against": lambda_against, "cs_prob": cs_prob, "cs_shape": shape,
+            "att_mult": lambda_for / level, "cs_mult": cs_prob / zero_chance(level, reference)}
 
 
 def multiplier(view, element_type):
@@ -208,7 +265,8 @@ def build(snapshot, catalog, horizon=HORIZON, model="fpl", history=None):
         "players": {player["id"]: project_player(player, fixtures, gameweeks, ratings) for player in players},
         "method": (f"Estimate, not a forecast: FPL's ep_next with next week's fixture difficulty removed, then re-weighted by "
                    f"each later fixture from team attack/defence ratings fitted to this season's xG (goals where xG is missing), "
-                   f"shrunk with {PRIOR_MATCHES} average pseudo-matches. Attack/clean-sheet weights are heuristics "
+                   f"shrunk with {PRIOR_MATCHES} average pseudo-matches; the league scoring level comes from actual goals, and clean-sheet "
+                   f"chances allow for the uncertainty left in those ratings. Attack/clean-sheet weights are heuristics "
                    f"(MID/FWD 0.7/0.3, GK/DEF 0.3/0.7). Decayed totals weight week k by {DECAY}^k. "
                    f"A player's current availability doubt (already in ep_next) is applied to every projected week."),
         "caveats": caveats,

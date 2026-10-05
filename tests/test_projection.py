@@ -51,7 +51,10 @@ class RatingTests(unittest.TestCase):
         reverse = projection.fixture_view(ratings, 4, 1, True)
         self.assertGreater(projection.multiplier(strong, 4), projection.multiplier(reverse, 4))
         self.assertGreater(strong["cs_prob"], reverse["cs_prob"])
-        self.assertAlmostEqual(strong["cs_prob"], math.exp(-strong["lambda_against"]))
+        # Negative binomial: the Poisson zero chance, lifted a little by the ratings' remaining uncertainty.
+        shape = strong["cs_shape"]
+        self.assertAlmostEqual(strong["cs_prob"], (1 + strong["lambda_against"] / shape) ** -shape)
+        self.assertGreater(strong["cs_prob"], math.exp(-strong["lambda_against"]))
 
     def test_fit_is_deterministic(self):
         self.assertEqual(projection.team_ratings(season()), projection.team_ratings(list(reversed(season()))))
@@ -68,6 +71,44 @@ class RatingTests(unittest.TestCase):
         self.assertAlmostEqual(with_goals["attack"][1], with_xg["attack"][1])
         ignored_goals = projection.team_ratings([result(1, 2, 0, 3, 3.0, 0.0)])
         self.assertAlmostEqual(ignored_goals["attack"][1], with_xg["attack"][1])
+
+
+class CleanSheetCalibrationTests(unittest.TestCase):
+    def test_goals_below_xg_still_predicts_the_actual_clean_sheet_rate(self):
+        # Six equal clubs, home and away (60 team-matches). xG is 1.6 per side, but goals run lower (1.1 per
+        # side, 30% clean sheets), as in 2026/27 GW1-5 where xG ran ~8% above goals.
+        clubs, goals = range(1, 7), [0, 1, 2, 0, 1, 1, 3, 0, 1, 2]
+        rows, index = [], 0
+        for home in clubs:
+            for away in clubs:
+                if home != away:
+                    rows.append(result(home, away, goals[index % 10], goals[(index + 3) % 10], 1.6, 1.6, fixture_id=index))
+                    index += 1
+        actual = sum((row["home_goals"] == 0) + (row["away_goals"] == 0) for row in rows) / (2 * len(rows))
+        ratings = projection.team_ratings(rows)
+        self.assertAlmostEqual(ratings["base"], 1.6)
+        self.assertAlmostEqual(ratings["level"], 1.1)
+        views = [projection.fixture_view(ratings, row[side], row[other], side == "home") for row in rows
+                 for side, other in (("home", "away"), ("away", "home"))]
+        predicted = sum(view["cs_prob"] for view in views) / len(views)
+        self.assertAlmostEqual(actual, 0.3)
+        self.assertLess(abs(predicted - actual), 0.05)
+        self.assertAlmostEqual(sum(view["lambda_against"] for view in views) / len(views), 1.1, places=2)
+        # The old xG-level Poisson answer was far off, so the check above is meaningful.
+        self.assertGreater(actual - math.exp(-1.6), 0.09)
+
+    def test_no_goals_yet_falls_back_to_the_xg_level(self):
+        ratings = projection.team_ratings([result(1, 2, 0, 0, 1.2, 0.8)])
+        self.assertIsNone(projection.goal_level([result(1, 2, 0, 0, 1.2, 0.8)]))
+        self.assertAlmostEqual(ratings["level"], ratings["base"])
+
+    def test_zero_chance_is_poisson_without_uncertainty(self):
+        self.assertAlmostEqual(projection.zero_chance(1.4), math.exp(-1.4))
+        self.assertAlmostEqual(projection.zero_chance(1.4, 1e9), math.exp(-1.4), places=6)
+        self.assertGreater(projection.zero_chance(1.4, 5.0), math.exp(-1.4))
+        self.assertEqual(projection.zero_chance(0.0, 5.0), 1.0)
+        # More matches mean a larger shape, so less uplift.
+        self.assertGreater(projection.combined_shape(30.0, 30.0), projection.combined_shape(8.0, 8.0))
 
 
 class ProjectionTests(unittest.TestCase):
@@ -194,6 +235,29 @@ class TeamResultsCollectorTests(unittest.TestCase):
                          {"team": 1, "fixtures": 1, "minutes": 90, "starts": 1, "xg": 0.81, "xa": 0.1, "goals": 1, "bonus": 3, "defcon_points": 2, "yellow": 1, "total_points": 12})
         self.assertEqual((rows[1]["saves"], rows[1]["gc"], rows[1]["defcon_points"]), (4, 2, 0))
         self.assertTrue(any("GW2" in warning for warning in warnings))
+
+    def test_bad_player_row_drops_only_that_gameweeks_player_rows_not_club_xg(self):
+        fixtures = [
+            {"id": 1, "event": 1, "finished": True, "team_h": 1, "team_a": 2, "team_h_score": 2, "team_a_score": 1},
+            {"id": 2, "event": 2, "finished": True, "team_h": 2, "team_a": 1, "team_h_score": 0, "team_a_score": 0},
+        ]
+        elements = [{"id": 11, "team": 1}, {"id": 21, "team": 2}]
+        minutes = {"identifier": "minutes", "value": 90, "points": 2}
+        live1 = {"elements": [
+            {"id": 11, "stats": {"minutes": 90, "expected_goals": "0.80"}, "explain": [{"fixture": 1, "stats": [minutes]}]},
+            # Malformed explain stats: fine for club xG, but breaks the player-row parser.
+            {"id": 21, "stats": {"minutes": 90, "expected_goals": "0.30"}, "explain": [{"fixture": 1, "stats": 5}]},
+        ]}
+        live2 = {"elements": [{"id": 11, "stats": {"minutes": 90, "expected_goals": "0.40"}, "explain": [{"fixture": 2, "stats": [minutes]}]}]}
+        client = self.FakeClient({"event/1/live/": live1, "event/2/live/": live2})
+        warnings, history = [], []
+        rows = team_results(client, fixtures, elements, warnings, history)
+        self.assertEqual((rows[0]["home_xg"], rows[0]["away_xg"]), (0.8, 0.3))
+        self.assertEqual((rows[1]["home_xg"], rows[1]["away_xg"]), (0.0, 0.4))
+        self.assertEqual([(row[0], row[1]) for row in history], [(2, 11)])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("GW1 player rows", warnings[0])
+        self.assertIn("club xG is kept", warnings[0])
 
 
 if __name__ == "__main__":

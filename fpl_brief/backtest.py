@@ -1,8 +1,11 @@
 """Replay finished gameweeks to score our Stage 2 model against simple baselines.
 
 For each finished gameweek k >= FIRST_GW, the model is fitted on gameweeks < k only (player history
-and team results) and predicts gameweek k. Scored on every player who played in k, and on the
-TOP_BY_PRICE most expensive players (current price) among them. Run: ``python -m fpl_brief.backtest``.
+and team results) and predicts gameweek k. Scored on two populations: every player who played in k
+(chosen on the outcome, so an unconditional model looks low there), and every player whose club had
+a fixture in k, with a no-show counted as 0 actual points (chosen before the match). Each also has a
+TOP_BY_PRICE subset (current price). Bias is mean predicted minus mean actual.
+Run: ``python -m fpl_brief.backtest``.
 """
 
 import argparse
@@ -16,6 +19,7 @@ from .storage import read_json
 FIRST_GW = 3
 TOP_BY_PRICE = 100
 LAST_N = 3
+POPULATIONS = ("all", "top", "fixture_all", "fixture_top")  # played, then club had a fixture
 DATA = Path(__file__).resolve().parents[1] / "data"
 
 
@@ -89,42 +93,51 @@ def run(history, results, catalog, ep_log=None, first_gw=FIRST_GW, top=TOP_BY_PR
     logged = ((ep_log or {}).get("gameweeks") or {}) if isinstance(ep_log, dict) else {}
     finished = sorted({row["gw"] for row in rows if isinstance(row.get("gw"), int) and row["gw"] >= first_gw})
     names = ("our model", "points per game", f"last {LAST_N} GWs average", "FPL ep_next (logged)")
-    pairs = {name: {"all": [], "top": []} for name in names}
+    pairs = {name: {key: [] for key in POPULATIONS} for name in names}
     per_gw = []
     for gameweek in finished:
         actual = {row["id"]: row.get("total_points") or 0 for row in rows if row.get("gw") == gameweek and row.get("id") in by_id}
+        clubs = {row[side] for row in results if row.get("gw") == gameweek for side in ("home", "away")}
+        # Chosen before the match: everyone at a club with a fixture (today's club), plus anyone who played.
+        squad = {pid: actual.get(pid, 0) for pid, player in by_id.items() if player.get("team") in clubs or pid in actual}
         ppg, last = baselines(rows, gameweek)
         logged_gw = (logged.get(str(gameweek)) or {}).get("ep_next") or {}
         predictions = {"our model": predict_gameweek(rows, results, players, gameweek),
                        "points per game": ppg, f"last {LAST_N} GWs average": last,
                        "FPL ep_next (logged)": {int(key): value for key, value in logged_gw.items()}}
-        row_out = {"gw": gameweek, "players": len(actual)}
+        row_out = {"gw": gameweek, "players": len(actual), "with_fixture": len(squad), "fixture": {}}
         for name, predicted in predictions.items():
             if name == "FPL ep_next (logged)" and not logged_gw:
                 continue
-            ids = [pid for pid in actual if name != "FPL ep_next (logged)" or pid in predicted]
-            couples = [(predicted.get(pid, 0.0), actual[pid]) for pid in ids]
-            pairs[name]["all"].append(couples)
-            pairs[name]["top"].append([(predicted.get(pid, 0.0), actual[pid]) for pid in ids if pid in expensive])
-            row_out[name] = _score(couples)
+            for prefix, population in (("", actual), ("fixture_", squad)):
+                ids = [pid for pid in population if name != "FPL ep_next (logged)" or pid in predicted]
+                couples = [(predicted.get(pid, 0.0), population[pid]) for pid in ids]
+                pairs[name][prefix + "all"].append(couples)
+                pairs[name][prefix + "top"].append([couple for pid, couple in zip(ids, couples) if pid in expensive])
+                if prefix:
+                    row_out["fixture"][name] = _score(couples)
+                else:
+                    row_out[name] = _score(couples)
         per_gw.append(row_out)
     summary = []
     for name in names:
         if not pairs[name]["all"]:
             summary.append({"model": name, "available": False})
             continue
-        summary.append({"model": name, "available": True, "all": _pooled(pairs[name]["all"]), "top": _pooled(pairs[name]["top"])})
+        summary.append({"model": name, "available": True, **{key: _pooled(pairs[name][key]) for key in POPULATIONS}})
     return {"gameweeks": finished, "top_by_price": top, "summary": summary, "per_gameweek": per_gw,
-            "note": ("Fitted on earlier gameweeks only. Scored on players who played; availability news is not kept for past "
-                     "GWs, so the backtest runs our model without it. Prices are today's.")}
+            "note": ("Fitted on earlier gameweeks only. 'Played' = players who played (chosen on the outcome); 'fixture' = "
+                     "every player whose club (today's club) had a fixture, no-shows scored 0. Availability news is not kept "
+                     "for past GWs, so the backtest runs our model without it. Prices are today's.")}
 
 
 def _score(couples):
     if not couples:
-        return {"n": 0, "mae": None, "spearman": None}
+        return {"n": 0, "mae": None, "spearman": None, "bias": None}
     mae = sum(abs(p - a) for p, a in couples) / len(couples)
+    bias = sum(p - a for p, a in couples) / len(couples)
     rho = spearman([p for p, _ in couples], [a for _, a in couples])
-    return {"n": len(couples), "mae": round(mae, 3), "spearman": round(rho, 3) if rho is not None else None}
+    return {"n": len(couples), "mae": round(mae, 3), "spearman": round(rho, 3) if rho is not None else None, "bias": round(bias, 3)}
 
 
 def _pooled(groups):
@@ -138,15 +151,20 @@ def _pooled(groups):
 def table(report):
     def cell(value):
         return "-" if value is None else f"{value:.3f}"
-    lines = [f"Backtest over GW{report['gameweeks'][0]}-GW{report['gameweeks'][-1]}" if report["gameweeks"] else "Backtest: no finished gameweeks to score",
-             f"{'Model':<26}{'MAE all':>9}{'rho all':>9}{'n all':>7}{'MAE top':>9}{'rho top':>9}{'n top':>7}"]
-    for row in report["summary"]:
-        if not row["available"]:
-            lines.append(f"{row['model']:<26}  (no data for these gameweeks)")
-            continue
-        lines.append(f"{row['model']:<26}{cell(row['all']['mae']):>9}{cell(row['all']['spearman']):>9}{row['all']['n']:>7}"
-                     f"{cell(row['top']['mae']):>9}{cell(row['top']['spearman']):>9}{row['top']['n']:>7}")
-    lines.append(f"top = the {report['top_by_price']} most expensive players today; rho = mean per-GW Spearman.")
+    lines = [f"Backtest over GW{report['gameweeks'][0]}-GW{report['gameweeks'][-1]}" if report["gameweeks"] else "Backtest: no finished gameweeks to score"]
+    for prefix, title in (("", "Players who played"), ("fixture_", "Every player whose club had a fixture (no-show = 0)")):
+        lines += ["", title,
+                  f"{'Model':<26}{'MAE all':>9}{'rho all':>9}{'bias all':>9}{'n all':>7}{'MAE top':>9}{'rho top':>9}{'bias top':>9}{'n top':>7}"]
+        for row in report["summary"]:
+            if not row["available"]:
+                lines.append(f"{row['model']:<26}  (no data for these gameweeks)")
+                continue
+            every, top = row[prefix + "all"], row[prefix + "top"]
+            lines.append(f"{row['model']:<26}{cell(every['mae']):>9}{cell(every['spearman']):>9}{cell(every['bias']):>9}{every['n']:>7}"
+                         f"{cell(top['mae']):>9}{cell(top['spearman']):>9}{cell(top['bias']):>9}{top['n']:>7}")
+    lines.append("")
+    lines.append(f"top = the {report['top_by_price']} most expensive players today; rho = mean per-GW Spearman; "
+                 "bias = mean predicted - mean actual.")
     lines.append(report["note"])
     return "\n".join(lines)
 

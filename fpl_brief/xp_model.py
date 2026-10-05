@@ -52,14 +52,15 @@ def shrink(events, exposure, prior, k):
     return (events + k * prior) / (exposure + k)
 
 
-def expected_half_goals(lam):
-    """E[floor(GC/2)] for GC ~ Poisson(lam), by direct summation."""
+def expected_half_goals(lam, shape=None):
+    """E[floor(GC/2)] for GC ~ Poisson(lam), or negative binomial with Gamma ``shape`` (the same rating
+    uncertainty as the clean-sheet chance in ``projection.fixture_view``), by direct summation."""
     if lam <= 0:
         return 0.0
-    total, prob = 0.0, math.exp(-lam)
+    total, prob = 0.0, projection.zero_chance(lam, shape)
     for goals in range(60):
         total += (goals // 2) * prob
-        prob *= lam / (goals + 1)
+        prob *= lam / (goals + 1) if not shape else (goals + shape) / (goals + 1) * lam / (shape + lam)
     return total
 
 
@@ -158,7 +159,7 @@ def fixture_points(kind, profile, rate, view):
         "goals": GOAL_POINTS.get(kind, 0) * rate["xg"] * share * view["att_mult"],
         "assists": ASSIST_POINTS * rate["xa"] * share * view["att_mult"],
         "clean_sheet": CLEAN_SHEET_POINTS.get(kind, 0) * profile["p_60"] * view["cs_prob"],
-        "conceded": -share * expected_half_goals(view["lambda_against"]) if kind in CONCEDED_POSITIONS else 0.0,
+        "conceded": -share * expected_half_goals(view["lambda_against"], view.get("cs_shape")) if kind in CONCEDED_POSITIONS else 0.0,
         "saves": rate["saves"] * share,
         "defcon": rate["defcon"] * share,
         "bonus": rate["bonus"] * share,
@@ -251,5 +252,5 @@ METHOD = (f"Estimate, not a forecast: our own model built from this season's dat
           f"club gameweeks (recent weighted more); FPL's chance of playing applies to the next GW only, and injured or suspended "
           f"players return from the GW their FPL news implies (else next GW + {UNKNOWN_RETURN_WEEKS}). Goals and assists from xG/90 and "
           f"xA/90 shrunk towards the position and price-band average ({ATTACK_PRIOR_MINUTES} minutes of prior), scaled by fixture. "
-          f"Clean sheets and goals conceded from the team model. Saves, defensive contributions, bonus and cards are per-90 rates "
+          f"Clean sheets and goals conceded from the team model (league level from actual goals, allowing for rating uncertainty). Saves, defensive contributions, bonus and cards are per-90 rates "
           f"shrunk with {SIDE_PRIOR_MATCHES} matches of the position average. Decayed totals weight week k by {projection.DECAY}^k.")

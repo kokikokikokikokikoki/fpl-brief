@@ -151,11 +151,16 @@ def team_results(client, fixtures, elements, warnings, history=None):
         try:
             live = client.get(f"event/{gameweek}/live/")
             xg = _xg_by_fixture(live, gw_fixtures, player_teams)
-            if history is not None and gameweek in complete:
-                history.extend(player_rows(live, gameweek, gw_fixtures, player_teams))
         except Exception as error:
             warnings.append(f"Could not collect GW{gameweek} live data; projections use goals for that week and keep any earlier player history: {error}")
-            xg = {}
+            live, xg = None, {}
+        # Separate block: a malformed player row drops only this gameweek's player rows (earlier ones are kept
+        # by player_history_doc), never the club xG above.
+        if live is not None and history is not None and gameweek in complete:
+            try:
+                history.extend(player_rows(live, gameweek, gw_fixtures, player_teams))
+            except Exception as error:
+                warnings.append(f"Could not read GW{gameweek} player rows; club xG is kept and so is any earlier player history for that week: {error}")
         for fixture in sorted(gw_fixtures, key=lambda row: row["id"]):
             values = xg.get(fixture["id"]) or {}
             home_xg, away_xg = values.get(fixture["team_h"]), values.get(fixture["team_a"])

@@ -1,4 +1,45 @@
-# Active task — Stage 2: our own expected-points model, with a backtest
+# Active task — Stage 2 follow-up: clean-sheet calibration, backtest bias, collector isolation
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
+**Status:** APPROVED (review PASS 2026-10-05; recalibration re-check due ~GW10, goal-level shrinkage first)
+**Date:** 2026-10-05
+**Overseer request:** "commit it and do the follow-up" (2026-10-05). Source: the Stage 2 review's optional items 1, 3 and 4 (the review was replaced by this task's review; see git `40fb865:ops/REVIEW.md`).
+
+## Required implementation
+
+1. **Clean-sheet calibration (`fpl_brief/projection.py`, and `xp_model.py` only if needed).**
+   - **The problem:** over GW3–5, the team model gave a mean clean-sheet probability of 0.22 and 1.57 goals against per team-match. The actuals were 0.33 and 1.32 (60 team-matches). Defenders and goalkeepers are undervalued.
+   - **Diagnose the cause first, and record it in the report.** Candidates:
+     - the league base comes from xG (about 1.53 per club), not goals;
+     - home-factor handling;
+     - a Poisson zero-inflation or Dixon–Coles low-score effect (research §1);
+     - something else.
+   - **Fix it with the smallest principled change.** Examples: anchor the league base rate to actual goals while keeping xG for relative strength, or add the Dixon–Coles τ correction. **Don't** just multiply clean-sheet chances by a fudge factor.
+   - **Validate without leakage.** Ratings for GW k come only from GWs before k. Report predicted vs actual mean clean-sheet chance and goals against for GW3–5, before and after the fix. Report the backtest table and bias before and after as well.
+   - **Keep Stage 1 consistent:** it shares the team model, so its FPL-based multipliers change too. Report the effect on a few defenders: Van Hecke 112, De Cuyper 115, Gvardiol 391, Hall 449, Calafiori 8.
+2. **Backtest bias (`fpl_brief/backtest.py`).**
+   - Add a **bias** column: mean predicted − mean actual.
+   - Add a second population: every player whose club had a fixture in that GW, with no-shows counted as 0 actual. The existing population is players who played.
+   - Report both populations in the table and in `--json`.
+3. **Collector isolation (`fpl_brief/collect.py`, around lines 150–158).** Parse player-history rows in their own `try` block, separate from the club-xG block. A bad player row should then drop only that row or that GW's player rows, with a warning, and never the GW's club xG. Add a test for this.
+4. **Tests:**
+   - the clean-sheet calibration change: a synthetic season where goals are below xG still predicts a clean-sheet rate close to the actual rate;
+   - the bias column and the second population;
+   - collector isolation.
+
+   Update any existing assertions the calibration legitimately changes, and explain each change in the report.
+
+## Allowed paths
+
+`fpl_brief/projection.py`, `fpl_brief/xp_model.py`, `fpl_brief/backtest.py`, `fpl_brief/collect.py`, `tests/test_projection.py`, `tests/test_xp_model.py`, `tests/test_backtest.py`, `tests/test_fetch_fpl.py`, `tests/test_research_candidates.py`, `tests/test_plan.py`, `README.md` (method text only), `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only). The UI method strings in `fpl_brief/*.py` may change. Do not commit. Do not run the fetcher; the committed data files are enough.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs` · `python -m fpl_brief.backtest`
+
+---
+
+# Previous task — Stage 2: our own expected-points model, with a backtest
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort). Orchestration by the main session.
 **Status:** APPROVED (review PASS 2026-10-05 with calibration check; UI checked in the browser by the orchestrator; local only, release needs Overseer approval)

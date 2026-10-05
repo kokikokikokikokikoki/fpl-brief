@@ -1,122 +1,98 @@
-# Independent review: Stage 2 (our own expected-points model, with a backtest)
+# Independent review: Stage 2 follow-up (clean-sheet calibration, backtest bias, collector isolation)
 
 **Date:** 2026-10-05
 **Reviewer:** Opus 5.5 subagent, medium effort (did not implement this work)
-**Verdict:** **PASS** (nothing blocking; the calibration finding is explained below, and optional items follow)
+**Verdict:** **PASS** (nothing blocking; optional items follow)
+
+Reviewed: the uncommitted diff against HEAD `40fb865` in `fpl_brief/projection.py`, `fpl_brief/xp_model.py`, `fpl_brief/backtest.py`, `fpl_brief/collect.py`, `tests/test_projection.py`, `tests/test_xp_model.py`, `tests/test_backtest.py` and `README.md`, against `ops/TASK.md` and `ops/IMPLEMENTATION_REPORT.md`.
 
 ## Checks
 
-- **Scoring, 2026/27 (§0)** (`fpl_brief/xp_model.py:30-34`, `153-166`):
-  - Goals are 10/6/5/4 and assists 3. Clean sheets are 4/4/1/0.
-  - Goals conceded apply to GK/DEF only (`CONCEDED_POSITIONS`, line 161). Saves are zeroed for non-GK (lines 126-127).
-  - The clean sheet needs 60+ minutes: `CS[pos]·p_60·P(CS)` (line 160).
-  - Appearance is `p_play + p_60` (line 157).
-  - DGWs sum the club's fixtures and BGWs give 0, because the loop runs over an empty list (lines 224-230).
-- **Shrinkage (§2):**
-  - `shrink = (events + k·prior)/(exposure + k)` (line 52).
-  - Attack uses k = 900 minutes, i.e. 10 × 90-minute units (lines 20 and 123), towards the position × price-band prior. The band edges are `now_cost` 50/65/85 (line 22).
-  - A band with fewer than 900 pooled minutes falls back to the position prior (lines 101-102 and 122).
-  - Defcon, bonus, cards and saves use k = 10 matches towards the position mean (lines 21 and 125).
-  - Priors are pooled from this season's history rows only (lines 95-103).
-  - There are no `history_past` or `element-summary` calls. The only `client.get` calls in `fpl_brief/` are the existing ones. `event/{gw}/live/` is reused (`collect.py:152`) and its player rows are taken from the same response (`collect.py:154-155`).
-- **Minutes and availability:**
-  - The window is the last 4 club GWs, weighted 0.8^age (`xp_model.py:131-150`). A missed club GW counts as 0 minutes.
-  - `u`/`n` give 0 for the whole horizon (line 204).
-  - `i`/`s` give 0 until the GW the news implies, or next GW + 2 if it gives none, and never before next GW + 1 (lines 183-209). That means 0 for the next GW.
-  - A doubt multiplies the next GW only (line 211).
-  - Each case adds a labelled flag (lines 205, 209 and 211). `skip_absence` makes a returning player play at his pre-absence rate (lines 139-141, 219).
-- **Poisson** `E[floor(GC/2)]` is summed directly up to 60 goals (lines 55-63), which is ample for any realistic λ.
-- **Backtest, no leakage** (`fpl_brief/backtest.py:27-38`), verified in the code:
-  - Team ratings are fitted on `results` with `gw < k` (lines 29-30).
-  - `xp_model.fit(rows, players, before, before_gw=k)` filters the history rows (`xp_model.py:79`) and the club GWs (`xp_model.py:107`) to `< k`.
-  - The GW k fixture list supplies only the opponents and home/away; scores are never read.
-  - The baselines also skip `gw >= k` (`backtest.py:45`).
-  - `neutral()` strips today's availability news (line 22-24), so no future news leaks in.
-  - The remaining leak is today's `now_cost` for the price bands and the top-100 set. It is minor and stated in the note (line 118-119).
-- **Metrics:**
-  - MAE is `Σ|p−a|/n` (line 125).
-  - Spearman is the Pearson correlation of average ranks, with ties sharing ranks (lines 56-79). It returns `None` for constant input or n < 3.
-  - The pooled MAE is over all player-GWs. ρ is the mean of the per-GW values, as the table states (lines 130-135).
-- **ep_log** (`collect.py:179-190`) is append-only: an existing GW key is never overwritten (line 182), and a non-int GW is a no-op. `data/ep_log.json` holds one GW (6) with 667 players and is 6,672 bytes.
-- **player_history** (`collect.py:112-166`):
-  - It is columnar: `fields` once, then 1,538 rows for GW1–5 (~300 per GW), 71,681 bytes. That projects to about 550 KB at season end, under the 2 MB limit.
-  - Rows are kept only for fully finished GWs (line 146).
-  - `defcon_points` is taken from the `explain` points (line 129-130).
-  - A player who moved clubs gets `team: null` (line 128).
-  - A failed fetch keeps the previous rows for that GW (`player_history_doc`, lines 169-176).
-  - It is written atomically by `fetch_fpl.py:195-201`.
-- **Wiring:**
-  - `projection.build(model="fpl"|"own")` rejects any other value (`projection.py:186-187`). The `own` path is at lines 200-205. The default is still `"fpl"`.
-  - The lens computes both numbers and `models_differ` = |Δxp_6|/weeks > 2 (`candidates.py:35, 86-95`), and adds a `projection_own` block (line 120).
-  - The plan has `horizon_delta_own`, which is `None` without history (`plan.py:97-107`).
-  - `dashboard.py:682-687` passes the history file and returns `None` on read errors.
-- **UI:**
-  - There are two columns, and the sort can use either (`desk-tools.ts:255-265`).
-  - `ownModelCell` (lines 131-140) escapes the title, each breakdown line and each flag, and shows the ≠ flag.
-  - When there is no history the cell shows "—" and the note says "unavailable". The strip shows `horizon_delta_own` only when it is a number (`transfer-plan.ts:78`).
-- **Old snapshots and missing files:** with `history=None`, `project_all` returns a caveat and `available: false` (`xp_model.py:246`, `projection.py:203`). This is covered by `test_build_with_own_model_and_without_history`.
-- **Scope:** every changed path is in the allowed list, and `data/`/`digest.md` were regenerated by the permitted fetch. The code is stdlib only (`math`, `re`, `datetime`, `argparse`, `json`). HEAD is still `c91cf60`, so nothing was committed.
-- **Tests** (the task command, run once):
-  - `python -m unittest discover -s tests`: **242 OK**.
-  - `npm run typecheck`: clean.
-  - `npm run build`: OK.
-  - `node --test tests/*.mjs`: **10/10 pass**.
-- **Backtest table** (`python -m fpl_brief.backtest`), which matches the report:
+- **Goal-anchored level, not a fudge** (`fpl_brief/projection.py:49-59`, `119`, `144-148`):
+  - `goal_level` is the league's actual goals per club-match from the same `results` passed to `team_ratings`. It returns `None` when there are no valid rows or no goals, and `team_ratings` then falls back to the xG `base` (`level: goal_level(results) or base`, line 119).
+  - The fit loop is unchanged. Relative attack and defence ratings still come from xG (`_matches`, lines 32-46).
+  - `fixture_view` scales both λ by `level` instead of `base` (lines 147-148). `att_mult = λ_for / level` (line 157) equals A·D·venue as before, so the attack multipliers are unchanged. That matches the report's six-week table, where the forwards and the own model's goals and assists are identical.
+- **Negative-binomial P(CS) follows from the existing shrinkage** (`projection.py:113-128`, `131-139`, `149-155`):
+  - The defence rating `D = (conceded + prior)/(expected + prior)` with `prior = PRIOR_MATCHES·base` is the posterior mean of a Gamma–Poisson model. Its posterior shape is `prior + conceded`, which is what `defence_shape` holds (lines 113-118). `attack_shape` is the same with goals scored.
+  - The shapes therefore start at the pseudo-count (6·base ≈ 9) and grow with every match, so `combined_shape` rises and `zero_chance` tends to `e^−λ`. The test at `tests/test_projection.py` (`combined_shape(30,30) > combined_shape(8,8)`, and `zero_chance(1.4, 1e9) ≈ e^−1.4`) covers this.
+  - `combined_shape` uses the exact CV² of a product of two independent mean-1 Gammas, `1/a + 1/d + 1/(a·d)` (line 128). Matching that to one Gamma is an approximation, and the report states it.
+  - `zero_chance` is `(1+λ/α)^−α`, the negative-binomial P(0) (line 139). The mean λ is untouched.
+  - There are no new tuning constants.
+- **`E[floor(GC/2)]` uses the same distribution** (`fpl_brief/xp_model.py:55-64`, `162`):
+  - It starts from `projection.zero_chance(lam, shape)`.
+  - It steps by the negative-binomial ratio `P(n+1)/P(n) = (n+α)/(n+1) · λ/(α+λ)`, which is correct.
+  - `fixture_points` passes `view["cs_shape"]` (line 162).
+  - `test_expected_half_goals_negative_binomial` checks it against an explicit gamma-function sum to 9 places.
+- **No NaN and no division by zero; deterministic:**
+  - Empty input and all-zero xG return `_average` (lines 62-65). That gives `prior_shape = 6·DEFAULT_GOALS`, empty shape dicts, and every lookup falling back to `prior`.
+  - `zero_chance` returns 1.0 for λ ≤ 0. `combined_shape` only ever receives values ≥ prior > 0.
+  - I ran three cases with `team_ratings(..., [1,2,3])`: an empty season, an all-0-0 season with zero xG, and a 0-0 season with xG. Each gave finite values, with `cs_mult = 1.0` for the empty season and the fallback to the xG level when there were no goals.
+  - Fitting on the reversed result list gave an identical ratings dict.
+- **No leakage, including the new level** (`fpl_brief/backtest.py:30-38`):
+  - `predict_gameweek` builds `before = [gw < k]` and passes only that to `team_ratings`, so `goal_level` and the shapes see GWs < k only.
+  - GW k rows supply only opponents and venue.
+  - The existing leak test (`tests/test_backtest.py:29-41`) still passes. It changes the GW ≥ 4 xG; changing the goals is covered by the same `before` filter.
+- **Calibration numbers reproduced** (scratch script; ratings from `data/latest.json` `team_results`, GWs < k, both sides of every GW3–5 fixture): 60 team-matches.
+  - Mean P(CS) **0.272** against an actual **0.333**.
+  - Mean λ_against **1.473** against actual goals against **1.317**.
+  - Both match report §3.
+- **Backtest reproduced** (`python -m fpl_brief.backtest`, and `--json`): the output matches report §4 exactly.
 
-  | Model | MAE all | ρ all | n all | MAE top | ρ top | n top |
-  |---|---|---|---|---|---|---|
-  | Our model | 2.076 | 0.370 | 916 | 2.494 | 0.401 | 215 |
-  | Points per game | 2.313 | 0.301 | 916 | 2.831 | 0.342 | 215 |
-  | Last 3 GWs | 2.351 | 0.310 | 916 | 2.850 | 0.352 | 215 |
+  | Population | Model | MAE all | ρ all | bias all | n | MAE top | ρ top | bias top | n top |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Played | Our model | 2.090 | 0.372 | −0.476 | 916 | 2.499 | 0.409 | −0.364 | 215 |
+  | Played | Points per game | 2.313 | 0.301 | −0.223 | 916 | 2.831 | 0.342 | +0.280 | 215 |
+  | Played | Last 3 GWs | 2.351 | 0.310 | −0.414 | 916 | 2.850 | 0.352 | +0.173 | 215 |
+  | Fixture | Our model | 1.138 | 0.720 | −0.037 | 2001 | 1.944 | 0.676 | −0.108 | 300 |
+  | Fixture | Points per game | 1.339 | 0.662 | +0.174 | 2001 | 2.414 | 0.569 | +0.586 | 300 |
+  | Fixture | Last 3 GWs | 1.240 | 0.693 | −0.027 | 2001 | 2.232 | 0.621 | +0.313 | 300 |
+
+  - The `--json` summary rows carry `all`, `top`, `fixture_all` and `fixture_top`.
+  - The per-GW rows carry `with_fixture` and `fixture`.
+  - The unavailable `ep_next` row is `{model, available}` only.
+- **Second population and bias** (`backtest.py:100-117`, `134-140`):
+  - `clubs` is every club in GW k's `team_results`. `squad` is every catalog player at one of those clubs (by today's club), plus anyone who played, with actual = `actual.get(pid, 0)`.
+  - Bias is `Σ(p − a)/n`, i.e. mean predicted − mean actual (line 138).
+  - The top subsets are taken from the same `ids`/`couples` via `zip` (line 112).
+  - `test_bias_and_the_club_had_a_fixture_population` hand-computes both biases. It also checks that a never-playing player is counted with 0 and that a player whose club had no fixture is excluded (n 12 vs 15; top 3 vs 6).
+- **Collector isolation** (`fpl_brief/collect.py:151-163`):
+  - The fetch and `_xg_by_fixture` sit in the first `try`. On failure that block sets `live, xg = None, {}`.
+  - Player rows are parsed in a second `try` that runs only when `live` is set.
+  - `player_rows` builds and returns a complete list (`collect.py:118-135`), so `history.extend` is all-or-nothing and a failed GW leaves no partial rows.
+  - `test_bad_player_row_drops_only_that_gameweeks_player_rows_not_club_xg` gives one player a malformed `explain` in GW1. GW1 club xG is kept (0.8 / 0.3), only the GW2 rows survive, and there is exactly one warning.
+  - The granularity is per GW, not per row, which the task allows.
+- **The three changed assertions are legitimate:**
+  - `test_projection` `cs_prob`: it was `exp(−λ)`, the old formula. It now checks the NB form exactly and asserts that it is greater than `exp(−λ)`. The new assertion is no weaker; it tests the new definition.
+  - `test_xp_model` conceded: it now passes `cs_shape`, matching `xp_model.py:162`.
+  - `test_backtest` Spearman `== 1.0` → `> 0.8`. I checked the toy season.
+    - GW3 predictions: defender (2 actual) 4.29 against midfielder (3 actual) 4.16.
+    - GW5: 4.30 against 4.12.
+    - GW4 is ordered correctly. That gives per-GW ρ of 0.8 / 1.0 / 0.8.
+    - The flip comes from the goal level (1.0) running below xG (1.1), which raises the defender's CS credit. This is the intended effect, not a hidden bug. Players 1 and 4 stay first and last.
+- **Scope:**
+  - `git diff --name-only HEAD` lists only allowed paths, plus `ops/TASK.md` (the Supervisor's new task text) and `ops/IMPLEMENTATION_REPORT.md`.
+  - No `data/` file changed, so the fetcher was not run.
+  - HEAD is still `40fb865`, so nothing was committed.
+  - There are no new imports: the code uses stdlib `math`, and `xp_model` already imported `projection`.
+  - The README change is method text only.
+- **Tests** (the task command, run once):
+  - `python -m unittest discover -s tests`: **248 OK**.
+  - `npm run typecheck --prefix dashboard`: clean.
+  - `npm run build --prefix dashboard`: OK.
+  - `node --test tests/*.mjs`: **10/10 pass**.
+  - `python -m fpl_brief.backtest`: the table above.
 
 ## Calibration
 
-Computed with `backtest.predict_gameweek` over GW3–5. Bias is mean predicted minus mean actual points per player-GW.
-
-| Group | n | Mean predicted | Mean actual | Bias |
-|---|---|---|---|---|
-| Played (the backtest's population) | 916 | 2.49 | 3.06 | **−0.57** |
-| Top 100 by price, played | 215 | 3.19 | 3.61 | **−0.41** |
-| Played 60+ minutes ("starters") | 620 | 3.05 | 3.93 | **−0.88** |
-| Top 100, 60+ minutes | 161 | 3.79 | 4.45 | **−0.66** |
-| MID/FWD ≥ £8.5m, 60+ minutes | 15 | 5.16 | 4.87 | **+0.29** |
-| Every player whose club had a fixture (non-appearances count as 0) | 2001 | 1.31 | 1.40 | **−0.08** |
-| Regulars chosen before the match (model p_60 ≥ 0.75), whether or not they played | 475 | 3.58 | 3.67 | **−0.09** |
-| Top 100 regulars, chosen before the match | 130 | 4.30 | 4.47 | **−0.17** |
-
-**Why the starters number is not a FAIL.** The "starters" and "played" groups are chosen on the outcome: they keep only the matches where the player appeared or played 60+ minutes. An unconditional model, which correctly prices in some chance of not starting, must look low on such a group. When the groups are chosen on what was known before the match, the bias is about zero (−0.08 to −0.17).
-
-Per-component bias for the 60+ starters (predicted vs actual):
-
-| Component | Predicted | Actual | Cause |
-|---|---|---|---|
-| Appearance | 1.71 | 2.00 | Pure selection |
-| Clean sheet | 0.42 | 0.83 | Partly the `p_60` selection; the rest is below |
-| Goals | 0.55 | 0.49 | — |
-| Assists | 0.21 | 0.30 | — |
-| Defcon | 0.23 | 0.34 | — |
-| Bonus | 0.24 | 0.29 | — |
-| Conceded, saves, cards | — | — | Match |
-
-The rest of the clean-sheet gap comes from the Stage 1 team model, which this model shares. Over GW3–5 the model gave a mean P(CS) of 0.22 and λ_against of 1.57 per team-match. The actual clean-sheet rate was 0.33, with 1.32 goals per team-match (n = 60 team-matches, about 1.8 SE).
-
-**Premium sample** (predicted / actual per GW, GW3–5):
-
-| Player | Predicted / actual | Mean predicted vs actual |
+| GW3–5, 60 team-matches | Mean P(CS) | Mean λ_against |
 |---|---|---|
-| Haaland (411) | 5.5/9, 5.2/9, 5.7/6 | 5.5 vs 8.0 |
-| Groß (124) | 3.9/1, 3.8/17, 4.3/14 | 4.0 vs 10.7 |
-| Saka (12) | 4.4/2, 4.1/8, 6.3/2 | 4.9 vs 4.0 |
-| B. Fernandes (426) | 5.2/2, 5.1/2, 6.8/2 | 5.7 vs 2.0 |
-| Palmer (154) | | 4.6 vs 2.7 |
-| Isak (379) | | 5.1 vs 7.7 |
-| Semenyo (397) | | 4.7 vs 8.7 |
-| Mbeumo (427) | | 5.9 vs 4.0 |
-| Gibbs-White (480) | | 5.4 vs 4.3 |
+| Actual | 0.333 | 1.317 |
+| Before (`40fb865`, per the earlier review and report) | 0.216 | 1.570 |
+| After (reproduced) | **0.272** | **1.473** |
 
-Premium attackers who started: +0.29 overall. There is no systematic low bias. The ~4–6 xP/GW for premiums is in line with their realised ~5/GW, so the 7–14 gap mostly reflects Stage 1's `ep_next` (a 30-day form average), not under-prediction here. Elite outliers such as Haaland are under-predicted, because k = 900 minutes holds them near the band prior after only 2–4 GWs (see Optional 2).
-
-**Caveat:** the sample is only 3 GWs (about 300 players each) and the priors are early-season. Re-check this before any decision to switch the default.
+- **The fix closes about half the clean-sheet gap and about 40% of the goals-against gap.** The residuals are about 1 SE on 60 team-matches.
+- **Bias in the "fixture" population is now close to zero.** The own model is at −0.037 all and −0.108 top, an improvement in every cell. MAE rises by about 0.013, consistent with moving GK/DEF towards their mean on a right-skewed target.
+- **Diagnosis.** The report's argument that Dixon–Coles τ preserves the marginals, so it cannot change P(CS), is correct. The away-side residual is plausibly home-factor noise.
 
 ## Blocking
 
@@ -124,18 +100,13 @@ None.
 
 ## Optional
 
-1. **Report bias in the backtest.**
-   - **Problem:** the backtest scores only players who played (`backtest.py:95`), and its table has no bias column. Because points are skewed, MAE can reward a low model.
-   - **Fix:** add mean(pred − actual) per model. Also add an "all squad players with a fixture" population, with non-appearances as 0, so that calibration is visible before the Overseer decides on the default.
-2. **Elite outliers are held back by the attack prior.**
-   - **Problem:** k = 900 min keeps Haaland's ~1.0 xG/90 close to the £8.5m+ FWD band prior early in the season. Haaland is predicted 5.5/GW and scored 8.0/GW.
-   - **Fix:** this is to spec. Revisit k, or a finer top band, once more GWs exist.
-3. **Clean sheets are under-predicted by the shared Stage 1 team model.**
-   - **Problem:** over GW3–5 the model predicted P(CS) 0.22 against an actual rate of 0.33.
-   - **Fix:** monitor it as GWs accumulate. Any fix belongs to `projection.py`'s rating fit, not this task.
-4. **`collect.py:150-158`: one failure loses both datasets.**
-   - **Problem:** the player-row parsing runs inside the same `try` as the xG aggregation. A malformed player row would therefore also drop that GW's club xG (it falls back to goals).
-   - **Fix:** wrap `player_rows` separately.
-5. **Not checked in a browser.**
-   - **Problem:** the report says the UI was not viewed in a browser, and neither was it here. The `<details>` inside a table cell and the 11-column table on a phone are checked only by the type check, the build and the node render test.
-   - **Fix:** take a quick visual check before release.
+1. **Shape units.** `attack_shape` and `defence_shape` count xG totals as Poisson events (`projection.py:113-118`), while λ is now on the goal scale. xG is less noisy than goals, so this slightly overstates the rating uncertainty. That pushes the uplift the helpful way here, but the effect is small and stated in the report's Limitations. If the uplift looks too generous later, consider scaling the shapes by `level/base`.
+2. **Empty-season prior.** With no results, P(CS) is now the prior predictive (about 0.30 at the default 1.4 goals, against `e^−1.4` = 0.25), because the shape is the pseudo-count. This is consistent with the model; it is noted only because the start-of-season own-model GK/DEF numbers will sit a little higher than before.
+3. **What the uncertainty leaves out.** The NB uncertainty covers the opponent's attack and the club's defence only, not the level or the home factor. The observed overdispersion (variance 1.66 against a mean of 1.41) is also partly within-match. Some remaining CS under-prediction is therefore expected. I agree with the Supervisor's rulings:
+   - accept both changes;
+   - defer the goal-level shrinkage and the home-factor shrinkage;
+   - re-check at about GW10.
+
+   The goal-level shrink towards xG is the more useful of the two deferred items, because after one or two GWs the level rests on 20–40 team-matches.
+4. **Stage 1 reference shape.** The `cs_mult` reference uses the arithmetic mean of the club shapes (`projection.py:154`). That is fine as a normaliser: it is exact for an empty season and only rescales Stage 1 uniformly, and a uniform scale cancels in m_k/m_0.
+5. **Today's club** is used for the fixture population (stated in the report and the note). If transfers between Premier League clubs become common, use `team` from the history rows for players who played.

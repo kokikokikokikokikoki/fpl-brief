@@ -38,7 +38,7 @@ class ScoringTests(unittest.TestCase):
         self.assertTrue(all(round(parts[kind]["assists"], 6) == 0.6 for kind in parts))
         cs = view["cs_prob"]
         self.assertEqual([round(parts[kind]["clean_sheet"], 6) for kind in (1, 2, 3, 4)], [round(4 * cs, 6), round(4 * cs, 6), round(cs, 6), 0.0])
-        half = xp_model.expected_half_goals(view["lambda_against"])
+        half = xp_model.expected_half_goals(view["lambda_against"], view["cs_shape"])  # same rating uncertainty as P(CS)
         self.assertAlmostEqual(parts[1]["conceded"], -half)
         self.assertAlmostEqual(parts[2]["conceded"], -half)
         self.assertEqual((parts[3]["conceded"], parts[4]["conceded"]), (0.0, 0.0))
@@ -58,6 +58,14 @@ class ScoringTests(unittest.TestCase):
         # P(GC >= 2) is the floor's first step, so E[floor(GC/2)] sits between it and lam/2.
         self.assertLess(xp_model.expected_half_goals(lam), lam / 2)
         self.assertGreater(xp_model.expected_half_goals(lam), 1 - math.exp(-lam) * (1 + lam))
+
+    def test_expected_half_goals_negative_binomial(self):
+        lam, shape = 1.3, 4.0
+        p = shape / (shape + lam)
+        exact = sum((n // 2) * math.gamma(n + shape) / (math.gamma(shape) * math.factorial(n)) * p ** shape * (1 - p) ** n for n in range(80))
+        self.assertAlmostEqual(xp_model.expected_half_goals(lam, shape), exact, places=9)
+        # A huge shape (no rating uncertainty) is the Poisson answer.
+        self.assertAlmostEqual(xp_model.expected_half_goals(lam, 1e9), xp_model.expected_half_goals(lam), places=6)
 
 
 class ShrinkageTests(unittest.TestCase):
