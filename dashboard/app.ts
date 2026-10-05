@@ -10,6 +10,8 @@ import { renderMatchday, type MatchdayData } from "./matchday";
 import "./matchday.css";
 import { renderThreats, renderTicker, renderWatchlist, type ThreatsData, type TickerData, type WatchRow } from "./league-threats";
 import "./league-threats.css";
+import { renderRivalMaths, type RivalMathsData } from "./rival-maths";
+import "./rival-maths.css";
 import { MAX_PLANNED, addTransfer, loadPlan, planQuery, renderPlanStrip, savePlan, type PlanResult, type PlannedTransfer } from "./transfer-plan";
 import "./tactics-board.css";
 import "./lineup-helper.css";
@@ -462,8 +464,27 @@ async function loadThreats(): Promise<void> {
   }
 }
 
+// Rival maths (EO, captaincy against rivals, finish odds) reuses the same league fetch on the server; loaded at most every 10 minutes.
+const rivalMaths: { data: RivalMathsData | null; loading: boolean; error: string; loadedAt: number } = { data: null, loading: false, error: "", loadedAt: 0 };
+
+async function loadRivalMaths(): Promise<void> {
+  if (rivalMaths.loading) return;
+  rivalMaths.loading = true;
+  try {
+    rivalMaths.data = await requestJson<RivalMathsData>("/api/rivals");
+    rivalMaths.error = "";
+  } catch (error) {
+    rivalMaths.error = errorMessage(error);
+  } finally {
+    rivalMaths.loading = false;
+    rivalMaths.loadedAt = Date.now();
+    if (state.active === "rivals") renderRivals();
+  }
+}
+
 function renderRivals(): void {
   if (state.active === "rivals" && !threats.loading && Date.now() - threats.loadedAt > 10 * 60_000) void loadThreats();
+  if (state.active === "rivals" && !rivalMaths.loading && Date.now() - rivalMaths.loadedAt > 10 * 60_000) void loadRivalMaths();
   const rivals = state.data?.snapshot.rivals ?? [];
   const league = state.data?.snapshot.league;
   const count = (value: unknown) => (Array.isArray(value) ? value.length : typeof value === "number" ? value : null);
@@ -471,7 +492,7 @@ function renderRivals(): void {
   const rows = rivals.map((rival) => ({ rank: rankOf(rival.rank), html: `<tr><td>${escapeHtml(rival.rank ?? "—")}</td><td class="player-name">${escapeHtml(rival.name || "Unknown")}</td><td>${escapeHtml(rival.points ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.shared) ?? "—")}</td><td>${escapeHtml(count(rival.comparison?.user_only) ?? "—")}</td></tr>` }));
   if (league?.rank != null) rows.push({ rank: rankOf(league.rank), html: `<tr class="you-row"><td>${escapeHtml(league.rank)}</td><td class="player-name"><span class="hand-underline">You</span></td><td>${escapeHtml(league.points ?? "—")}</td><td>—</td><td>—</td></tr>` });
   rows.sort((a, b) => a.rank - b.rank);
-  required<HTMLElement>("#rivals").innerHTML = renderThreats(threats.data, threats.loading, threats.error) + `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
+  required<HTMLElement>("#rivals").innerHTML = renderThreats(threats.data, threats.loading, threats.error) + renderRivalMaths(rivalMaths.data, rivalMaths.loading, rivalMaths.error) + `<article class="panel"><div class="panel-head"><div><h2>#club-football rivals</h2><p>Only public squad snapshots. Absence is not a confirmed sell.</p></div></div><div class="table-wrap"><table><caption>Both squads have 15 players, so each side holds the same number of differentials.</caption><thead><tr><th>Rank</th><th>Manager</th><th>Points</th><th>Shared players</th><th>Differentials (each side)</th></tr></thead><tbody>${rows.map((row) => row.html).join("")}</tbody></table></div></article>`;
 }
 
 let pendingJevQuestion = "";

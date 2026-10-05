@@ -1,0 +1,30 @@
+/* Rival maths (Tactics Board world, see DESIGN.md); shares list and chip styles with league-threats.css. */
+.rm { margin-bottom: 22px; }
+.rm .lt-h { margin-top: 18px; }
+.rm-mode { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 12px 14px; border-radius: 8px; background: var(--enamel-shade); box-shadow: inset 0 0 0 1px var(--rule); }
+.rm-mode .hand { margin: 0 0 4px; font-size: 19px; line-height: 1.35; color: var(--marker-blue); }
+.rm-mode .fine { margin: 0; color: var(--ink-soft); font-size: 13px; }
+.rm-mode-tag { padding: 4px 10px; border-radius: 999px; font: 800 15px/1.2 var(--display); letter-spacing: .05em; text-transform: uppercase; color: #fff; background: var(--marker-blue); }
+.rm-protect .rm-mode-tag { background: var(--marker-green); }
+.rm-chase .rm-mode-tag { background: var(--marker-red); }
+.rm-bar { display: flex; height: 18px; margin: 8px 0 6px; overflow: hidden; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--rule); }
+.rm-seg { flex-basis: 0; min-width: 2px; background: var(--ink-soft); opacity: .55; }
+.rm-seg + .rm-seg { border-left: 2px solid var(--enamel); }
+.rm-seg.is-you { background: var(--marker-blue); opacity: 1; }
+.rm-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 6px; padding: 0; list-style: none; font-size: 14px; }
+.rm-legend b { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.rm-legend .is-you { color: var(--marker-blue); font-weight: 700; }
+.rm-table td, .rm-table th { font-variant-numeric: tabular-nums; vertical-align: top; }
+.rm-table th .sub, .rm-table td .sub { display: block; font-weight: 400; }
+.rm-table tr.is-you td, .rm-table tr.is-you th { background: rgb(28 85 199 / 9%); }
+.rm-drivers { display: block; font-size: 13px; }
+.rm-driver { display: inline-block; margin-right: 8px; white-space: nowrap; }
+.rm-good { color: var(--marker-green); font-weight: 700; }
+.rm-bad { color: var(--marker-red); font-weight: 700; }
+.rm-flag { color: var(--caution); font-weight: 700; }
+.rm-xp { display: grid; justify-items: end; font: 800 18px/1 var(--display); font-variant-numeric: tabular-nums; }
+.rm-xp small { font: 500 11px/1.2 var(--body); color: var(--ink-soft); }
+.rm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }
+.rm-assume { margin: 10px 0; padding-left: 18px; color: var(--ink-soft); font-size: 13px; }
+@media (max-width: 1100px) { .rm-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .rm-mode { grid-template-columns: 1fr; } }

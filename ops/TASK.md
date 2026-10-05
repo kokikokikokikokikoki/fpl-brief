@@ -1,7 +1,7 @@
 # Active task — Stage 4: rival maths (effective ownership, captaincy vs rivals, finish odds)
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
-**Status:** READY_FOR_PROGRAMMER
+**Status:** APPROVED (review PASS 2026-10-05 after Supervisor rulings unifying the odds model; local only)
 **Date:** 2026-10-05
 **Overseer request:** "after stage 3 do stage 4 and 5" (2026-10-05). Design source: `research/fpl-maths.md` §4. The existing League threats panel (`fpl_brief/league.py` `threats`, `/api/league`) already fetches rivals' picks, history and chips through the shared cache. Build on it rather than re-fetching.
 

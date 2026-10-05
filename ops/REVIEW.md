@@ -1,101 +1,90 @@
-# Independent review: Stage 3 fix, free-transfer valuation and honest plan ranking
+# Independent review: Stage 4, rival maths (EO, captaincy vs rivals, finish odds)
 
 **Date:** 2026-10-05
 **Reviewer:** Opus 5.5 subagent, medium effort (did not implement this work)
-**Verdict:** **PASS**. Both blocking items from the previous review are resolved. The objective matches the Supervisor ruling exactly, the breakdown reproduces the solver objective, and the cards rank honestly. The earlier PASS items have not regressed. Nothing is blocking; there are four optional notes.
-
-I reviewed the uncommitted diff against HEAD `c3bdcc8`, focusing on the fix: `fpl_brief/optimise.py`, `dashboard/transfer-planner.ts|css`, `tests/test_optimise.py`, `tests/test_transfer_planner.mjs` and `README.md`. I checked it against the active task and ruling in `ops/TASK.md`, the 2026-10-05 FT-valuation row in `ops/DECISIONS.md`, and the "Fix round" in `ops/IMPLEMENTATION_REPORT.md`.
-
-## Objective (against the ruling)
-
-- **No per-week FT term.** The only objective costs are:
-  - XI, captain, vice and bench points (`optimise.py:157-162`);
-  - `−weight·min_transfer_gain` on each `in` (`:165`);
-  - the bank term on `itb[W−1]` only (`:167`);
-  - `−weight·hit_cost` on hits (`:168`);
-  - the end-FT marginals (`:174-175`).
-
-  The `fts[w]` columns carry no cost (`:170-171`).
-- **FTs valued once, only those held after the last GW.**
-  - The model adds `fts[W]` (`:171`), set by the same exact clamp rows as every other week (`:220-225`).
-  - It enforces `fts[W] = 1 + Σ_{k=2..5} e_k`, with `e_k ∈ [0,1]` continuous and cost `0.85^(W−1)·FT_VALUES[k]` (`:150`, `:174-176`). `FT_VALUES = {2:2.0, 3:1.6, 4:1.3, 5:1.1}` (`:31`), so the 1st FT is worth 0.
-- **The linearisation is exact.**
-  - `fts[W]` is integer, and the marginal values are positive and non-increasing, so this is a concave piecewise-linear function under maximisation.
-  - For any integer `n`, the LP part of the solution fills `e_2…e_n` to 1 and leaves the rest at 0. The value is therefore exactly the list sum.
-  - There is no incentive to under-report `fts[W]`: every marginal is positive, and the clamp rows already bound it above.
-  - `read_plan` recomputes the value from the list (`:283-284`), and it agrees with the solver objective. See the next point.
-- **`MIN_TRANSFER_GAIN = 0.5`** is named and tunable through `settings` (`:33`, `:72`). It applies per purchase at that week's weight (`:165`).
-- **Bank value once:** `itb_value/10` at the last GW's weight on `itb[W−1]` only (`:167`, `:285`).
-- **The rest of the ILP is unchanged:** the squad, XI, bench, continuity, budget, hit and rollover rows are the same as in the reviewed version (`:178-225`).
+**Verdict:** **PASS**. The EO, swing, captain Monte Carlo and the finish-odds model, as it stands after the Supervisor rulings, match the task and research §4. The analytic and simulated paths use the same mean, mean-uncertainty and σ_week terms. The endpoint reuses the threats fetch, sits behind the gate and degrades on failure. Everything in the UI is escaped and labelled as an estimate. All tests pass. Nothing is blocking; there are six optional notes.
 
 ## Checks
 
-### Breakdown
+- **Tests (run once):**
+  - `python -m unittest discover -s tests`: **291 OK** (30.2 s);
+  - `npm run typecheck --prefix dashboard`: OK;
+  - `npm run build --prefix dashboard`: OK;
+  - `node --test tests/*.mjs`: **14/14 pass**.
+- **Scope:** the changed paths are `fpl_brief/rivals.py` (new), `fpl_brief/league.py`, `dashboard.py`, `dashboard/app.ts`, `dashboard/rival-maths.ts|css` (new), `tests/test_rivals.py` (new), `tests/test_rival_maths.mjs` (new), `README.md`, `ops/IMPLEMENTATION_REPORT.md` and `ops/TASK.md` (status line only). All of them are allowed paths. Nothing is committed (HEAD is still 4200ae5). Only the stdlib is used: `math` and `random` (`rivals.py:19-22`). The endpoint test lives in `tests/test_rivals.py`, not `test_dashboard.py`; both are allowed.
+- **EO arithmetic** (`rivals.py:48-64`):
+  - benched is 0 unless `bboost`, a starter is 1, the captain is 2 and `3xc` gives 3;
+  - `effective_ownership` is the mean over rivals (`:78-86`);
+  - tested in `test_rivals.py:22-35`.
+  - The vice-captain is not modelled; see Optional 4.
+- **Assumed captain before the deadline** (`rivals.py:67-75`):
+  - the rival's last captain if he still starts and has xP > 0, otherwise their highest-xP starter;
+  - the reason is returned per rival and shown as "C X (assumed: …)" (`rival-maths.ts:66`), with the rule also listed under assumptions (`rivals.py:463-465`).
+  - "Still starts" is slightly stricter than the brief's "still owns him", which is reasonable.
+  - Tested in `test_rivals.py:46`.
+- **Your multipliers:** taken from the account lineup when `private.usable`, plus a pending BB/TC (`rivals.py:351-356`), otherwise from the public snapshot picks. The account lineup carries `position` and `is_captain` (`private_team.py:85`), so `multipliers` reads it correctly. The source is shown in the UI (`rival-maths.ts:85`). Tested in `test_rivals.py:186`.
+- **Swing:**
+  - `Σ (mine − theirs)·xP`, so a positive result is good for you (`rivals.py:89-96`).
+  - It is computed per rival (`:385`) and against EO (`:378`), with the top 5 drivers each way (`:373-376`).
+  - The sign is tested at `test_rivals.py:36`.
+- **Captain Monte Carlo:**
+  - **Shared draws:** one seeded column per involved player (`rivals.py:139-149`). Every lineup is scored on the same columns (`:152-160`, `:404-424`), so identical squads cancel exactly (`test_rivals.py:55`).
+  - **Points distribution:** `max(−2, round(gauss(xP, sd)))`.
+  - **sd:**
+    - per-appearance sd by position, shrunk with 50 pseudo-appearances (`:99-129`);
+    - scaled by `min(1, √(xP/mean))` (`:132-136`).
+    - The scaling is justified: it limits the upward bias that the −2 floor puts on low-xP players. It is documented as a deviation and in the method text.
+  - **"Beats the field":** your captain's extra points × R vs the summed rival extras, with ties counting ½ (`:408-421`). This captain-only reading is stated in the method (`:471`), and an identical captain gives exactly 50%.
+  - **Rival columns:** P(full-squad diff ≥ 0) (`:424-426`).
+  - **Heuristic flag:** labelled as a heuristic in the data (`:429-432`) and the UI (`rival-maths.ts:65`, `:80`).
+  - **Determinism:** fixed `SEED` (`rivals.py:25`).
+- **League refactor:**
+  - `gather` only adds `picks`, `active_chip`, `history` and `finished` to data that was already fetched (`league.py:133-137`).
+  - `threats` consumes it unchanged, and the existing league tests pass.
+  - The endpoint test asserts that `/api/rivals` reads exactly the same set of paths as threats (`test_rivals.py:240-252`).
+- **Server** (`dashboard.py:914-921`):
+  - it sits after `self.gate(path)` (`:871`) and the loopback/DNS-rebinding check (`:886`);
+  - account data still goes through `private_data`, which returns `disabled()` on a non-loopback bind (`:578-582`);
+  - any exception gives `state: "unavailable"`;
+  - sign-in is required when a password is set (`test_rivals.py:257`).
+- **UI:**
+  - every interpolation goes through `esc`/`num`/`pct`/`signed` (`rival-maths.ts:24-35`, `:53-88`). `jerseySvg` takes only a lookup key (`kits.ts:32-33`).
+  - The subtitle says "Every probability here is an estimate from a simple model". The P columns and the title bar say "estimate", and the method text opens with `ESTIMATE`.
+  - Lazy load: at most once per 10 min, including after an error, because `loadedAt` is set in `finally` (`app.ts:467-487`).
+  - The node tests cover escaping and the loading, idle, error and unavailable states.
 
-- `read_plan` accumulates `points_gain`, `hits`, `transfer_penalty`, `ft_value` and `bank_value` (`:255`, `:274-285`). Each mirrors an objective cost term.
-- `score_against` rounds each part to 4 dp and sets `objective_gain = round(Σ parts, 4)` (`:291-294`). The sum check therefore holds to about 1e-12.
-- In the real run, `objective_gain` equals the solver's objective difference from hold:
+## Odds model (after the Supervisor rulings)
 
-  | Plan | `objective_gain` | Solver difference |
-  |---|---|---|
-  | 1 | 13.4586 | 13.459 |
-  | 2 | 13.0197 | 13.020 |
-  | 3 | 12.6586 | 12.659 |
-
-  Hold's `score` 238.681 equals its `objective` 238.681.
-- `most_points` goes to the largest `gain`, with ties going to the earlier rank (`:345-348`). It is recomputed after any plan is dropped (`:445-449`).
-
-### Ranking and labels
-
-- **Plan cards** (`transfer-planner.ts:82`), in this order:
-  1. the "Most estimated points" badge;
-  2. "Points gain vs holding" (large, `.planner-gain strong`, `transfer-planner.css:7`);
-  3. "Planner score vs holding" with the labelled parts (`:62-72`).
-- **"best overall" is gone:** grep finds no match in the UI, the method text or the README. The panel test asserts it is absent (`tests/test_transfer_planner.mjs:42`).
-- **Intro:** it reads "Holding scores X points over the horizon …" and explains the ranking (`:100`).
-- **Method text** (`optimise.py:365-380`) and **README** (`README.md:212`) describe the ranking accurately: points, minus hits and the 0.5 threshold, plus one-time end values for FTs (2.0/1.6/1.3/1.1) and bank.
-- **Escaping:** every dynamic value goes through `esc`, and the breakdown string is escaped as a whole (`:71`).
-
-### Real run (own model)
-
-I ran `python -m fpl_brief.optimise own`. The CLI uses the current time for `now`, and the result is `ready` in 16.0 s. **Holding scores 229.52**, and holding ends with 5 FTs.
-
-| Plan | GW6 action | `plan.build` | Points gain | Planner score | Points / hits / threshold / FT / bank | FTs after |
-|---|---|---|---|---|---|---|
-| 1 (most points) | Cherki → Saka; João Pedro → Barry | passed (Δ next GW 0.0) | +16.05 | +13.46 | +16.61 / 0 / −2.09 / −1.06 / +0.01 | 3 |
-| 2 | Cherki → Saka; João Pedro → Kostoulas | passed (Δ +3.3) | +15.65 | +13.02 | +16.17 / 0 / −2.09 / −1.06 / +0.01 | 3 |
-| 3 | Cherki → Mbeumo; João Pedro → Barry | passed (Δ 0.0) | +15.25 | +12.66 | +15.81 / 0 / −2.09 / −1.06 / +0.01 | 3 |
-
-- All three plans solved to `optimal`. These figures match the implementation report.
-- The planner score and the points gain now rank the plans in the same order.
-- The FT part checks out: −(1.3 + 1.1) · 0.85⁵ = −1.0649.
-
-### Earlier PASS items
-
-- **ILP rules:** unchanged (see above).
-- **Server:** `/api/optimise` still sits after the gate and the loopback Host check (`dashboard.py:870`, `:884`, `:945-946`). It still has the order of checks, cache and lock from the previous review (`:694-721`). `dashboard.py` is not touched by the fix.
-- **Dependency:** `highspy>=1.15` is only in `requirements-planner.txt`. `requirements.txt` gained a comment only, and the `Dockerfile` is unchanged.
-- **Missing-highspy path:** I re-simulated it with `sys.modules['highspy']=None; sys.modules['numpy']=None`.
-  - `import dashboard` succeeds.
-  - `optimise.build(...)` and `optimise.solve(...)` both return `{"state":"unavailable", …}`.
-
-### Tests (run once)
-
-| Command | Result |
-|---|---|
-| `python -m unittest discover -s tests` | 273 tests OK (29.0 s) |
-| `npm run typecheck --prefix dashboard` | OK |
-| `npm run build --prefix dashboard` | OK |
-| `node --test tests/*.mjs` | 12 pass, 0 fail |
-
-The required tests are present in `tests/test_optimise.py`:
-
-| Requirement | Test | Lines |
-|---|---|---|
-| Parts sum to `objective_gain` and match the solver difference; exactly one most-points plan | breakdown test | `:142-153` |
-| Two plans ending with equal FTs rank by points | equal-FT test | `:155-165` |
-| One FT held across the horizon is worth exactly its one-time value | one-time FT test (`0.85²·1.3`, threshold −0.5) | `:167-178` |
-| `MIN_TRANSFER_GAIN` blocks a +0.2 move | blocking test | `:180-186` |
+- **Weekly mean:**
+  - gross points shrunk to the tracked league mean with k = 5, minus the average hit cost (`rivals.py:202-210`).
+  - The analytic edge uses `net` (`:253`); the sims use `mean − hits` (`:308`). Hits are subtracted in both paths.
+- **σ_m (group-relative):**
+  - residuals against each GW's group average (`:187-192`), shrunk to pooled with 5 pseudo-GWs (`:207`);
+  - `mean_var = σ_m²/(n + k)` (`:210`).
+  - The same `mean_var` feeds the analytic path (`pairwise` → `finish_odds`, `:254`, `:232`) and the sims (`:306`), so the Supervisor-accepted reading is implemented consistently.
+- **Season sims:**
+  - the mean is drawn once per sim per manager (`:306`), which gives the n² variance;
+  - each week bootstraps one GW index shared by everyone (`:300-303`);
+  - deviations are measured from each manager's own net mean, so the bootstrap has zero mean (`:211`).
+- **Top-up** (`:266-279`):
+  - `need_r = max(0, σ_week² − b²_r)`, so there is no negative top-up;
+  - `t_you² = ½·min need`, and `t_r² = need_r − t_you² ≥ 0`, so the variances add to σ_week² per (you, r) pair;
+  - the n weekly top-ups are drawn as one `N(0, t√n)`, which is exact for summed iid normals.
+  - Tested at `test_rivals.py:121`.
+- **Outputs:**
+  - P(ahead) comes from the sims, with ties counting ½ (`:313-315`);
+  - wins are split on ties, so title odds sum to 1 (`:309-312`; test `:109`);
+  - expected rank: `:316`;
+  - the analytic Φ uses `math.erf` (`:43-45`) with `n·σ_week² + n²·(v_you + v_r)` (`:232`), the same terms as the sims. The sim and analytic results agree within 5 points in `test_rivals.py:131`, and within 0.9 points on the reported real data.
+- **Real numbers:**
+  - not reproduced here: the live read-only getter stalled in this sandbox with no network progress, so I stopped it.
+  - The reported figures (you 11.7% title, FNN. 41.3% sim vs 41.4% analytic, z = −0.22) are internally consistent: Φ(−0.22) = 0.413.
+- **Double counting (judgement):** none.
+  - σ_week is the spread of the weekly difference around the pair's own mean difference.
+  - The mean-uncertainty term is the uncertainty of that mean.
+  - The bootstrap plus the top-up only fill σ_week (they never add to it, except where the bootstrap alone already exceeds it).
+  - These are the two parts of a normal–normal predictive variance, not the same variance counted twice.
+  - The compression towards 50% comes from the prior strength: k = 5 implies a between-manager sd of true weekly means of σ_m/√5 ≈ 5–6 pts/GW. That is probably generous for a top-of-league group; see Optional 1. It is a modelling choice the Supervisor set, not an error.
 
 ## Blocking
 
@@ -103,18 +92,9 @@ None.
 
 ## Optional
 
-1. **Say that the end values are decayed.** The FT list and bank value are applied at the last GW's weight (0.85⁵ ≈ 0.44), so a kept 2nd FT is worth about 0.89 points, not 2.0. The method text (`optimise.py:373-375`) and README (`:212`) quote "2.0, 1.6, 1.3, 1.1" without saying so. Adding "at the last GW's weight" would make that clear. This is consistent with the ruling, so it is not a correctness issue.
-2. **Guard the FT list.** The exact linearisation relies on `ft_values` being non-increasing (`:174-175`). `settings()` accepts any dict, so a caller passing increasing values would get a wrong objective without any warning. A one-line check in `settings()` or `formulate` would make the assumption explicit.
-3. **Weekly moves in GW7–9 (noise-chasing).** All three plans use one FT every week:
-   - GW7 Rogers → Mbeumo;
-   - GW8 Calvert-Lewin → Brobbey;
-   - GW9 Suzuki → Trafford (a GK swap).
-
-   Under this objective, a GW9 move needs only about 0.31 (threshold, 0.5·0.85³) + 0.58 (the lost 4th end-FT, 1.3·0.85⁵) ≈ 0.9 decayed points over GW9–11 to pay off. That is well within plausible own-model error between similar players. The guard is reasonable for GW6, which is the only week the UI acts on. The later-week moves are best read as provisional.
-
-   Two possible follow-ups, both tuning decisions for the Supervisor:
-   - add a card note that moves after GW6 are indicative;
-   - test `MIN_TRANSFER_GAIN` around 1.0.
-
-   Also note that plan 1 and plan 3's GW6 moves have a next-GW `plan.build` delta of 0.0: their value is all in later weeks.
-4. **Bench and vice weights in "points".** The `points_gain` breakdown part includes bench and vice weights, while the headline "Points gain" does not (+16.61 vs +16.05 for plan 1). Both are labelled correctly (`transfer-planner.ts:67`, `:82`), so this is only a note in case users ask why the numbers differ.
+1. **Prior strength:** k = 5 makes the mean uncertainty dominate this early (all P(ahead) values fall between 41% and 72%). An empirical-Bayes estimate of the between-manager variance, `τ² = max(0, var(observed means) − σ_m²/n)`, so that k = σ_m²/τ², would let the data set the shrinkage as the season goes on. Revisit at around GW10.
+2. **Title odds are calibrated pairwise only against you** (`rivals.py:278-279`). Rival-vs-rival weekly spreads are `b² + t_r1² + t_r2²`, which is not matched to their own σ_week. That matters for P(1st) of rivals, not for your P(ahead). It is worth one line in the method text.
+3. **Unfinished GW:** when `finished` is false, G uses live totals that include part of the current GW, while `remaining` still counts that GW in full (`rivals.py:347`), and its partial points also enter the means and the bootstrap. This is a small bias mid-gameweek. You could exclude the unfinished GW from `_weekly` and use the previous GW's totals.
+4. **Vice-captain:** not modelled. That is acceptable, because the Normal draw never models 0 minutes. A note under assumptions would match research §4 ("the vice only counts when the captain gets 0 minutes").
+5. **Heuristic favourite:** it is chosen among your top-5 candidates (`rivals.py:429`), not as the field's most-captained player. If the field's favourite is not one of your top-5 starters, the flag cannot fire. That is rare in practice.
+6. **Duplicate fetch:** threats and rival maths fire in parallel on first open, so before the cache fills both may fetch the same endpoints once (this is noted in the report). Chaining the second load after the first would avoid it.

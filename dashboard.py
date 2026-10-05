@@ -29,6 +29,7 @@ from fpl_brief import league as league_data
 from fpl_brief import optimise as transfer_optimiser
 from fpl_brief import plan as transfer_plan
 from fpl_brief import private_team
+from fpl_brief import rivals as rival_maths
 from fpl_brief import web_session
 from fpl_brief.research import evidence_status, load_packet
 from fpl_brief.storage import read_json
@@ -910,6 +911,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(league_data.threats(snapshot or {}, MATCHDAY_GET))
             except Exception:
                 return self.send_json({"state": "unavailable", "reason": "League data came back in an unexpected shape. Try again shortly."})
+        if path == "/api/rivals":
+            # Rival maths reuses the League threats fetch through the same cached getter: no new FPL endpoints.
+            try:
+                config = load_config()
+                gathered = league_data.gather(snapshot or {}, MATCHDAY_GET)
+                return self.send_json(rival_maths.build(snapshot or {}, catalog, gathered, self.private_data(config, snapshot or {}), self.player_history()))
+            except Exception:
+                return self.send_json({"state": "unavailable", "reason": "Rival maths couldn't use the league data it got. Try again shortly."})
         if path == "/api/matchday":
             try:
                 return self.send_json(matchday.build(snapshot or {}, MATCHDAY_GET))

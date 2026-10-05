@@ -77,8 +77,13 @@ def ticker(fixtures_by_event, teams, squad_teams=None, first=None, weeks=TICKER_
             "method": "FPL's own difficulty (1 easy – 5 hard). Average over the next 4 gameweeks. A break marks 12+ days without a match for that club."}
 
 
-def threats(snapshot, get):
-    """Your squad against the top of your mini-league (live standings, public picks and chip history)."""
+def gather(snapshot, get):
+    """Fetch the top of the mini-league once: standings, each member's latest picks and season history.
+
+    Shared by ``threats`` and the rival maths (``rivals.build``), so both read the same cached public
+    endpoints. Returns an ``unavailable`` dict, or ``state: "ready"`` with ``members`` (you first) that
+    keep the raw picks (position, multiplier, captaincy), the active chip and the weekly history rows.
+    """
     team_id, league_id = _int(snapshot.get("team_id"), None), _int(snapshot.get("league_id"), None)
     if not team_id or not league_id:
         return {"state": "unavailable", "reason": "No team or league is configured yet."}
@@ -125,7 +130,19 @@ def threats(snapshot, get):
                         "rank": member["row"].get("rank"), "total": member["row"].get("total"), "squad": squad, "captain": captain,
                         "bank": entry_history.get("bank"), "value": entry_history.get("value"),
                         "chips_left": chips_left(boot.get("chips"), (history or {}).get("chips"), chip_week),
-                        "chips_used": [{"name": c.get("name"), "label": CHIP_NAMES.get(c.get("name"), c.get("name")), "gameweek": c.get("event")} for c in (history or {}).get("chips") or [] if isinstance(c, dict)]})
+                        "chips_used": [{"name": c.get("name"), "label": CHIP_NAMES.get(c.get("name"), c.get("name")), "gameweek": c.get("event")} for c in (history or {}).get("chips") or [] if isinstance(c, dict)],
+                        "picks": [p for p in (picks or {}).get("picks") or [] if isinstance(p, dict)], "active_chip": (picks or {}).get("active_chip"),
+                        "history": [h for h in (history or {}).get("current") or [] if isinstance(h, dict)]})
+    return {"state": "ready", "gameweek": gameweek, "chip_week": chip_week, "finished": current.get("finished") is True,
+            "players": players, "members": members, "warnings": warnings}
+
+
+def threats(snapshot, get):
+    """Your squad against the top of your mini-league (live standings, public picks and chip history)."""
+    gathered = gather(snapshot, get)
+    if gathered.get("state") != "ready":
+        return gathered
+    gameweek, chip_week, players, members, warnings = (gathered[key] for key in ("gameweek", "chip_week", "players", "members", "warnings"))
     you = members[0]
     others = members[1:]
     counts, captains = {}, {}
