@@ -58,3 +58,63 @@ test("planner renders idle, loading, error and non-ready states", () => {
   assert.ok(renderPlanner({ phase: "done", result: { state: "infeasible", reason: "r" } }).includes("No legal plan"));
   assert.ok(renderPlanner({ phase: "done", result: { ...ready, plans: [] } }).includes("No plan found"));
 });
+
+test("planner cards show the constraint summary and the cost against the unconstrained best, escaped", () => {
+  const { renderPlanner, costLine } = loadPlanner();
+  const steered = {
+    ...ready,
+    constraints: [{ kind: "force_in", id: 268, name: evil, gw: 6, text: `Must buy ${evil} by GW6` }, { kind: "keep", id: 165, name: "João Pedro", gw: null, text: "Never sell João Pedro" }],
+    unconstrained_best_gain: 16.05, unconstrained_best_action: "Cherki → <b>Saka</b>",
+    plans: [{ ...ready.plans[0], cost_vs_unconstrained: -2.5 }, { ...ready.plans[1], cost_vs_unconstrained: 0 }],
+  };
+  const html = renderPlanner({ phase: "done", result: steered });
+  for (const expected of ["Constraints: Must buy &lt;img src=x onerror=alert(1)&gt; by GW6 · Never sell João Pedro", "Costs <strong>2.50</strong> points against the unconstrained best (+16.05, Cherki → &lt;b&gt;Saka&lt;/b&gt;)",
+    "Same as the unconstrained best (+16.05, Cherki → &lt;b&gt;Saka&lt;/b&gt;)"]) {
+    assert.ok(html.includes(expected), `missing ${expected}`);
+  }
+  assert.ok(!/<(img|script|b|i)[\s>]/.test(html), "no raw dynamic markup");
+  assert.equal(html.split("Constraints: ").length - 1, 2, "summary on each card");
+  assert.match(costLine({ cost_vs_unconstrained: 1.2 }, 16.05, null), /1\.20 more estimated points than the unconstrained best \(\+16\.05\)/);
+  assert.equal(costLine({}, 16.05, null), "");
+  // No constraints: no summary and no cost line, even if a cost were present.
+  const free = renderPlanner({ phase: "done", result: { ...steered, constraints: [] } });
+  assert.ok(!free.includes("Constraints: ") && !free.includes("unconstrained best"));
+  const invalid = renderPlanner({ phase: "done", result: { state: "invalid", reason: evil } });
+  assert.ok(invalid.includes("Constraints not accepted") && invalid.includes("&lt;img") && !invalid.includes("<img"));
+});
+
+test("steering controls: chips with remove buttons, query string and limits", () => {
+  const { renderSteering, renderChips, plannerQuery, addConstraint, removeConstraint, emptyConstraints, resolvePlayer, choiceLabel } = loadPlanner();
+  const choices = { owned: [165, 11], players: [
+    { id: 268, name: evil, team: "FUL", position: 4, price: 61 }, { id: 165, name: "João Pedro", team: "CHE", position: 4, price: 77 },
+    { id: 11, name: "A&B", team: "ARS", position: 3, price: 55 }, { id: 12, name: "Twin", team: "X", position: 3, price: 45 }, { id: 13, name: "Twin", team: "Y", position: 3, price: 45 }] };
+  const c = emptyConstraints();
+  assert.equal(addConstraint(c, "force_in", 268, 6), null);
+  assert.equal(addConstraint(c, "keep", 165, null), null);
+  assert.equal(addConstraint(c, "force_out", 11, null), null);
+  assert.match(addConstraint(c, "keep", 165, null), /already/);
+  assert.equal(plannerQuery("own", c), "model=own&force_in=268%406&force_out=11&keep=165");
+  assert.equal(plannerQuery("fpl", emptyConstraints()), "model=fpl");
+  const html = renderSteering(choices, [6, 7, 8], c);
+  for (const expected of ["Must buy &lt;img src=x onerror=alert(1)&gt; by GW6", "Must sell A&amp;B by GW6", "Never sell João Pedro", 'data-planner-remove="force_in:0"', 'data-planner-remove="keep:0"',
+    'aria-label="Remove: Never sell João Pedro"', 'list="planner-players"', "Next GW (GW6)", '<option value="7">GW7</option>', "Up to 5 constraints", "holding your squad, which ignores them"]) {
+    assert.ok(html.includes(expected), `missing ${expected}`);
+  }
+  assert.ok(!/<(img|script|b|i)[\s>]/.test(html), "no raw dynamic markup");
+  // Never sell / Must sell list owned players only.
+  const keepSelect = html.slice(html.indexOf('id="planner-keep"'), html.indexOf("</select>", html.indexOf('id="planner-keep"')));
+  assert.ok(keepSelect.includes('value="165"') && !keepSelect.includes('value="268"'));
+  assert.equal(addConstraint(c, "force_in", 12, null), null);
+  assert.equal(addConstraint(c, "force_in", 13, 7), null);
+  assert.match(addConstraint(c, "keep", 11, null), /At most 5/);
+  assert.ok(renderSteering(choices, [6], c).includes("Limit reached"));
+  removeConstraint(c, "force_in", 0);
+  assert.equal(c.force_in.length, 2);
+  assert.ok(renderChips(emptyConstraints(), choices, 6).includes("chooses freely"));
+  assert.ok(renderSteering(null, [], emptyConstraints()).includes("Run \"Suggest plans\" once to load the player list"));
+  assert.equal(resolvePlayer(choiceLabel(choices.players[1]), choices).id, 165);
+  assert.equal(resolvePlayer("#268", choices).id, 268);
+  assert.equal(resolvePlayer("joão pedro", choices).id, 165);
+  assert.equal(resolvePlayer("Twin", choices), null, "ambiguous names need the list label");
+  assert.equal(resolvePlayer("", choices), null);
+});

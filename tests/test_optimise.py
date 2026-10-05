@@ -193,6 +193,77 @@ class SolverTests(unittest.TestCase):
         self.assertIn(13, result["plans"][0]["weeks"][1]["lineup"])
 
 
+@unittest.skipUnless(HAS_HIGHS, "highspy is not installed")
+class ConstraintSolverTests(unittest.TestCase):
+    def solve(self, inputs, constraints, **overrides):
+        return optimise.solve(inputs, optimise.settings(**overrides), constraints)
+
+    def test_forced_in_player_is_in_the_squad_by_his_gw(self):
+        # 20 is no upgrade (1.0 a week), so only the constraint brings him in, by week 2 at the latest.
+        inputs = data(weeks=4, market={20: (3, 1.0, 45, 20)}, free=1)
+        free = self.solve(inputs, None)
+        self.assertFalse(any(20 in week["squad"] for week in free["plans"][0]["weeks"]))
+        forced = self.solve(inputs, {"force_in": [(20, 2)]})
+        self.assertTrue(forced["plans"])
+        for found in forced["plans"]:
+            self.assertIn(20, found["weeks"][1]["squad"])
+        # The hold baseline stays unconstrained: the same as without constraints.
+        self.assertEqual(forced["hold"]["horizon_xp"], free["hold"]["horizon_xp"])
+        self.assertEqual(all_moves(forced["hold"]), [])
+
+    def test_default_gw_is_the_next_one(self):
+        forced = self.solve(data(market={20: (3, 1.0, 45, 20)}), {"force_in": [(20, None)]})
+        self.assertIn(20, forced["plans"][0]["weeks"][0]["squad"])
+
+    def test_force_out_and_keep_are_respected(self):
+        market = {20: (3, 5.0, 50, 20), 24: (4, 9.0, 90, 24)}
+        free = self.solve(data(market=market, free=2), None)
+        self.assertIn((1, 11, 20), all_moves(free["plans"][0]))  # the unconstrained best sells 11
+        kept = self.solve(data(market=market, free=2), {"keep": [11]})
+        for found in kept["plans"]:
+            self.assertTrue(all(11 in week["squad"] for week in found["weeks"]))
+        sold = self.solve(data(market=market, free=2), {"force_out": [(13, 1)]})
+        for found in sold["plans"]:
+            self.assertNotIn(13, found["weeks"][0]["squad"])
+
+    def test_infeasible_constraints_give_a_clear_reason(self):
+        # A £13.0m midfielder with no bank, and the three players who could fund him kept.
+        result = self.solve(data(market={21: (3, 12.0, 130, 21)}), {"force_in": [(21, 1)], "keep": [8, 9, 13]})
+        self.assertEqual(result["state"], "infeasible")
+        self.assertIn("No legal plan meets these constraints", result["reason"])
+        self.assertIn("Remove or loosen one", result["reason"])
+
+    def test_invalid_constraints(self):
+        inputs = data(market={20: (3, 1.0, 45, 20)})
+        cases = [({"force_in": [(99, None)]}, "not in the player list"),
+                 ({"force_in": [(20, 9)]}, "outside the planning horizon"),
+                 ({"keep": [20]}, "not in your squad"),
+                 ({"force_in": [(11, 2)], "force_out": [(11, 2)]}, "both in and out"),
+                 ({"force_out": [(11, 2)], "keep": [11]}, "both kept and sold"),
+                 ({"keep": [1, 2, 3, 4, 5, 6]}, "At most 5"),
+                 ({"keep": [1, 1]}, "listed twice")]
+        for constraints, reason in cases:
+            result = self.solve(inputs, constraints)
+            self.assertEqual(result.get("state"), "invalid", constraints)
+            self.assertIn(reason, result["reason"])
+
+
+class ConstraintParseTests(unittest.TestCase):
+    def test_strict_parse(self):
+        self.assertEqual(optimise.parse_constraints("268@6, 12", "", "165"),
+                         {"force_in": [(268, 6), (12, None)], "force_out": [], "keep": [165]})
+        self.assertEqual(optimise.parse_constraints(), {"force_in": [], "force_out": [], "keep": []})
+        for bad in (("x", "", ""), ("1@", "", ""), ("1@x", "", ""), ("-1", "", ""), ("", "", "1@6"), ("1.5", "", ""), ("１", "", ""), ("", "1@@6", "")):
+            with self.assertRaises(ValueError):
+                optimise.parse_constraints(*bad)
+
+    def test_cache_key_is_order_free(self):
+        a = optimise.constraints_key({"force_in": [(1, None), (2, 6)], "keep": [3]})
+        b = optimise.constraints_key({"keep": [3], "force_in": [(2, 6), (1, None)], "force_out": []})
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, optimise.constraints_key(None))
+
+
 class SettingsTests(unittest.TestCase):
     def test_ft_values_must_be_non_negative_and_non_increasing(self):
         optimise.settings(ft_values={2: 2.0, 3: 1.6, 4: 1.6, 5: 1.1})
@@ -226,6 +297,59 @@ class BuildTests(unittest.TestCase):
                     self.assertIn("price", move["in"])
         # The doubtful forward (22) is never bought for the next GW: plan.py would refuse him.
         self.assertFalse(any(move["in"] == 22 for found in result["plans"] for move in found["next_gw_moves"]))
+
+    def test_constraints_report_the_unconstrained_best(self):
+        snapshot, catalog, private = plan_fixture(bank=20, free_transfers=1)
+        free = optimise.build(snapshot, catalog, private, FRESH, model="fpl", now=NOW)
+        self.assertEqual(free["unconstrained_best_gain"], free["plans"][0]["gain"])
+        self.assertEqual(free["constraints"], [])
+        self.assertNotIn("cost_vs_unconstrained", free["plans"][0])
+        steered = optimise.build(snapshot, catalog, private, FRESH, model="fpl", now=NOW, constraints={"force_in": [(25, None)], "keep": [11]})
+        self.assertEqual(steered["state"], "ready", steered.get("reason"))
+        self.assertEqual(steered["unconstrained_best_gain"], free["plans"][0]["gain"])
+        self.assertEqual(steered["unconstrained_best_action"], free["plans"][0]["next_gw_action"])
+        self.assertEqual([row["text"] for row in steered["constraints"]], ["Must buy P25 by GW6", "Never sell P11"])
+        for found in steered["plans"]:
+            self.assertIn(25, found["weeks"][0]["squad"])
+            self.assertIn(11, found["weeks"][0]["squad"])
+            self.assertEqual(found["rules_check"]["state"], "passed")
+            self.assertEqual(found["cost_vs_unconstrained"], round(found["gain"] - free["plans"][0]["gain"], 2))
+        self.assertLessEqual(steered["plans"][0]["cost_vs_unconstrained"], 0)
+        self.assertTrue(any("holding baseline ignores them" in caveat for caveat in steered["caveats"]))
+        # A supplied (cached) unconstrained best is used as is: no second unconstrained solve.
+        with patch.object(optimise, "solve", side_effect=optimise.solve) as solve:
+            given = optimise.build(snapshot, catalog, private, FRESH, model="fpl", now=NOW, constraints={"keep": [11]},
+                                   unconstrained_best={"gain": 99.0, "action": "x"})
+        self.assertEqual(solve.call_count, 1)
+        self.assertEqual(given["unconstrained_best_gain"], 99.0)
+
+    def test_build_validates_constraints(self):
+        snapshot, catalog, private = plan_fixture(bank=20, free_transfers=1)
+        run = lambda constraints: optimise.build(snapshot, catalog, private, FRESH, model="fpl", now=NOW, constraints=constraints)
+        self.assertIn("not in the player list", run({"force_in": [(999, None)]})["reason"])
+        self.assertIn("not in your squad", run({"keep": [20]})["reason"])
+        self.assertIn("outside the planning horizon (GW6)", run({"force_in": [(20, 7)]})["reason"])
+        doubtful = run({"force_in": [(22, None)]})  # flagged 50%: the rule checker would refuse him this week
+        self.assertEqual(doubtful["state"], "infeasible")
+        self.assertIn("P22 is flagged doubtful or unavailable for GW6", doubtful["reason"])
+        snapshot, catalog, private = plan_fixture(bank=0, free_transfers=1)
+        blocked = optimise.build(snapshot, catalog, private, FRESH, model="fpl", now=NOW, constraints={"force_in": [(21, None)], "keep": [8, 9, 13]})
+        self.assertEqual(blocked["state"], "infeasible")
+        self.assertTrue(blocked["reason"].startswith("Constraints: Must buy P21 by GW6; Never sell P8"))
+
+    def test_choices_list_players_for_the_pickers(self):
+        snapshot, catalog, _ = plan_fixture()
+        picked = optimise.choices(snapshot, catalog)
+        self.assertEqual(sorted(picked["owned"]), list(range(1, 16)))
+        self.assertEqual({row["id"] for row in picked["players"]}, {p["id"] for p in catalog["players"]})
+        self.assertEqual(picked["players"][0], {"id": 1, "name": "P1", "team": "T1", "position": 1, "price": 45})
+
+    def test_cli_parses_constraints(self):
+        with patch.object(optimise, "build", return_value={"state": "blocked"}) as build, patch("builtins.print"):
+            optimise.main(["own", "--force-in", "268", "--keep", "165", "--force-out", "12@7"])
+        self.assertEqual(build.call_args.kwargs["constraints"], {"force_in": [(268, None)], "force_out": [(12, 7)], "keep": [165]})
+        with self.assertRaises(SystemExit), patch("sys.stderr"):
+            optimise.main(["own", "--keep", "x"])
 
     def test_blocked_without_fresh_account_or_history(self):
         snapshot, catalog, private = plan_fixture()

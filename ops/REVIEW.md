@@ -1,25 +1,122 @@
-# Independent review: Stage 5, price awareness (selling prices and FPL's price-change predictor)
+# Independent review: Planner, force players in or out
 
 **Date:** 2026-10-05
 **Reviewer:** Opus 5.5 subagent, medium effort (did not implement this work)
-**Verdict:** **PASS**. The selling-price formula is correct and agrees with the account capture. The outlook mapping is robust to missing or malformed fields. Early-move notes are attached after the fact and never reach the optimiser objective, the candidate ranking or the plan deltas. The UI escapes everything and shows the blocked state without account data. The Stage 4 method text is present in both places. All four test commands pass. Nothing is blocking; there are six optional notes.
+**Verdict:** **PASS**. The constraints are variable bounds on the steered solve only. The hold baseline is identical to the free run's, both in code and in a real run. `unconstrained_best_gain` is the free run's plan 1, and it is cached under an order-free key. Validation, strict parsing, the 400s and the infeasible reasons all match the task. The UI escapes everything. All four test commands pass. The real run reproduces exactly. The Haaland sale in GW8 is a genuine (marginal) model choice, not a bug. Nothing is blocking; there are five optional notes.
 
 ## Checks
 
-| Area | Result | Evidence |
-| --- | --- | --- |
-| `selling_price` | Pass | `fpl_brief/prices.py:21-23`: `bought + (now − bought)//2` if `now > bought`, else `now`, in integer tenths. Tests cover the floor, a fall, a single +0.1 rise earning nothing, and an exhaustive match against AIrsenal's `(now+bought)//2` (`tests/test_prices.py:24-36`). |
-| Account cross-check | Pass | `prices.py:183-191, 202-208` compares the formula at today's prices with the account selling price, shows the account value and lists mismatches, with a "recapture" caveat (the Supervisor accepted this). The real-data run reports 15/15 matching. |
-| Outlook mapping | Pass | `prices.py:30-56` parses decimal strings or numbers and rejects bool, NaN, inf and junk. Projections need an int offset in 0–2 and a parseable percent, and a non-int likelihood becomes None. `prices.py:58-94`: a percent beyond ±100 means the change is expected at update 1; otherwise the first projection beyond ±100 means update `offset+1`; otherwise steady; with no usable fields, unknown. The calibrating flag must be exactly `True`, and `locked_until` must be a string. My fuzzing (a percent of `'1e999'`, `[1]`, `True` or `'nan'`, a bool or out-of-range offset, a string likelihood, `None` catalogs, and string or non-dict picks) gave `unknown`, or a sane result, and never raised. The label always ends with the guide text. |
-| Catalog | Pass | `fetch_fpl.py:223-242` adds the five fields to `CATALOG_FIELDS`; missing fields are stored as null. `data/catalog.json`: all 667 players carry all five fields (percent `'1.7'`, projections are 3 dicts, locked null, calibrating false). The live mapping gives 660 steady, 4 rise and 3 fall. |
-| Notes only, never a driver | Pass | `fpl_brief/optimise.py:441,444`: `price_notes` is copied from the rule checker after `solve()` (`optimise.py:427`), so it is not in the objective. `fpl_brief/plan.py:109-111` adds `price_notes` beside the unchanged deltas. `fpl_brief/candidates.py:97-102,117` adds `price_outlook` after the filters, and the sort key (`candidates.py:119`) is unchanged. Tests: plan deltas are identical with and without a riser (`tests/test_prices.py:194-205`), and the candidate order ignores prices (`:226`). |
-| Sell-note skip rule | Pass | `prices.py:135` skips the note when `sell(purchase, now) == sell(purchase, now−1)`, so the fall only eats unrealised half-profit (for example, bought 57 and now 60 keeps a selling price of 58). Falls at or below the purchase price always note. With no purchase price, the note is kept, which is conservative. Tested at `test_prices.py:100-105`. |
-| Deadline / update count | Pass, with a note | `prices.py:17,97-104` counts daily 01:00 UTC updates (5 for 07:45Z on 5 Oct to the 10 Oct 10:00Z deadline, which I checked by hand). A `locked_until` at or after the deadline suppresses the note (`:107-111`). It is labelled as an approximation in the code, the docstring and the implementation report. The user-facing text says "in about N updates", but does not say the update count is approximate (see Optional 2). |
-| UI: Prices strip | Pass | `dashboard/prices.ts:65-84` builds the account table (Bought, Sell, Profit locked in, One more rise/fall, "needs a second rise") and the public table with the `evidence-warning` blocked message. Every value goes through `esc`. Wired after the lineup list in `dashboard/app.ts:422`. `dashboard.py:901` serves `squad_view` behind the existing private gate. `tests/test_dashboard.py:740-743` checks the missing-account state. |
-| UI: markers and notes | Pass | `prices.ts:56-63`: ▲/▼ marker, with the label in the escaped title and in visually-hidden text. Candidate lens: `dashboard/desk-tools.ts:260` (marker plus escaped note) and the outgoing note and price method line. Planned strip and planner cards: escaped `price_notes` lists (`dashboard/transfer-plan.ts:69-73,86`, `dashboard/transfer-planner.ts:76-79,90`). Node tests feed `<img onerror>` payloads through each renderer (`tests/test_prices.mjs`). |
-| Stage 4 method text | Pass | `fpl_brief/rivals.py:476-477` and `dashboard/rival-maths.ts:74,80` both say the odds are calibrated only against the manager, and that the vice-captain isn't modelled. |
-| Harness change | Acceptable | `priceMarker` reaches `desk-tools.ts` through the runtime object (`app.ts:200,686`), so `desk-tools` keeps only a type import. The 12-line `priceNotes` helper is duplicated in `transfer-plan.ts` and `transfer-planner.ts`. No existing `.mjs` test was edited: `git status` shows only the new `tests/test_prices.mjs`, so no existing test was weakened. |
-| Scope / constraints | Pass | The changed paths are all on the allowed list: `ops/TASK.md` changes only the status line plus the Supervisor-authored task text, and `data/*` and `digest.md` come from the one permitted fetcher run. `prices.py` uses only `math` and `datetime`. Nothing is committed, and HEAD is still `9227996`. |
+### Encoding (steered run only)
+
+- `formulate` applies the constraints only when `constraints and not hold` (`fpl_brief/optimise.py:309`):
+  - force_in sets the lower bound of `squad[p, gw]` to 1 (`:312`);
+  - force_out sets its upper bound to 0, for pool players only (`:315`);
+  - keep sets the upper bound of `out[p, w]` to 0 for every week (`:318`).
+- No other player's bounds or rows are touched. Continuity, budget, FTs, the club limit, the frozen GWs and the 3 transfers per GW are unchanged (`:228-308`).
+- **Pool.** Forced-in players are always included through `select_pool(..., extra=...)` (`:165`, `:569`).
+- **force_out outside the pool.** Build drops it as already satisfied (`:572`). This is sound: a player outside the pool can never be bought, and every owned player is in the pool.
+
+### Hold baseline (the late fix)
+
+- The hold is solved with `run(True, relax and not constraints)` (`:432`), with the existing fallback to the relaxed XI (`:433-435`).
+- I checked that this matches the free run:
+  - A strict main-model infeasibility implies a strict hold infeasibility, because holding is a feasible point of the main model.
+  - So whenever the free run itself used `relax=True`, the steered strict hold also fails and falls back to the same relaxed hold.
+  - Otherwise both runs use the same strict hold, with the same fallback.
+  - The pool differs only by players the hold can't buy.
+- **Evidence:**
+  - the test asserts the steered hold equals the free hold (`tests/test_optimise.py`, `test_forced_in_player_is_in_the_squad_by_his_gw`);
+  - in my real runs, hold `horizon_xp` was 229.52 for the free run, for (a), and for (a) plus keep Haaland.
+- The report says only focused tests ran after the fix: `test_optimise.py` 32 OK, and the dashboard Optimise tests 7 OK. That follows the token-discipline rule. My full run below covers it.
+- No test exercises the relaxed-hold branch with constraints (optional 1).
+
+### Unconstrained best and the cache
+
+- Server (`dashboard.py`):
+  - The cache key is `base_key + constraints_key(...)` (`:720`).
+  - The free key is `constraints_key(None)` (`:730`), which equals the key of a plain request (`((), (), ())`). The two can't be mixed up.
+  - A steered request solves and caches the free run first, then passes `best_of` (`:731-736`).
+  - A non-ready free run is returned as-is and never cached (`:733-734`).
+- `constraints_key` sorts each kind, so it is order-free (`fpl_brief/optimise.py:110`, and `test_cache_key_is_order_free`).
+- `best_of` takes plan 1 of a ready result (`:508`).
+- `cost_vs_unconstrained = gain − best gain`, set only when constraints are active (`:629`).
+- The CLI path, without a supplied best, solves the free run inside `build`.
+- `OPTIMISE_CACHE_SIZE` is 8 (`dashboard.py:64`).
+
+### Validation, parsing and infeasibility
+
+- `validate_constraints` (`fpl_brief/optimise.py:120-158`) returns `invalid` for each case the task lists:
+  - an unknown id;
+  - a GW outside the horizon (the default is the next GW);
+  - a keep player who isn't owned;
+  - the same player in and out at the same GW;
+  - more than 5 constraints;
+  - duplicates;
+  - a player both kept and forced out.
+- `build` validates against the catalog and `solve` against the pool.
+- **Parsing.** `parse_constraints` (`:90`) uses `re.fullmatch` with ASCII `[0-9]`, which rejects full-width digits, `1@`, `1.5` and `@@` (tests).
+- **Endpoint.**
+  - A ValueError or a repeated parameter gives 400 `invalid` (`dashboard.py:703-708`).
+  - A validation `invalid` from `build` also gives 400 (`:742`).
+  - The gate, loopback and blocked handling are unchanged. The DNS-rebinding test with constraints gives 403.
+- **Infeasible.**
+  - Plain reasons come before solving: a gone player, or a doubtful player forced in for the next GW (`:516`).
+  - A steered infeasibility names the constraints and the rule families (`:430`, `:589-593`).
+  - A time limit is reported separately (`:428`).
+  - Nothing is dropped silently, except the force_out no-op above.
+- **Unchanged:** the GW6 distinctness cut (`_cut`), `rules.build` for each plan, `score_against` and the scoring.
+
+### UI (`dashboard/transfer-planner.ts`)
+
+- The chips and the remove buttons (with aria-labels) render through `esc` (`:150-160`).
+- The steering fieldset (`:163-181`):
+  - "Must buy" is a search box over a datalist, with a By-GW select;
+  - "Must sell" and "Never sell" list owned players only;
+  - adding is disabled at 5.
+- The cost line has three states, "Costs X points", "Same as" and "X more", all escaped (`:184-191`).
+- The card constraint summary is escaped (`:193`). Invalid results show the title "Constraints not accepted" (`:223`).
+- The Node test asserts everything is escaped.
+- **The "usable after the first Suggest plans" limitation is acceptable.**
+  - The panel says so plainly.
+  - Passing the catalog at mount would need `app.ts`, which is outside the allowed paths.
+  - Picker data is public catalog data.
+
+### Real run
+
+`python -m fpl_brief.optimise own --force-in 268 --keep 165` gives:
+- state ready, with constraints "Must buy King by GW6" and "Never sell João Pedro";
+- unconstrained best +16.05 (Cherki → Saka; João Pedro → Barry);
+- Plan 1: Cherki → Saka; Rogers → King. Gain +12.24, `cost_vs_unconstrained` −3.81;
+- Plan 2: Gibbs-White → Saka; Cherki → King. Gain +11.88, cost −4.17;
+- Plan 3: Cherki → Mbeumo; Rogers → King. Gain +11.35, cost −4.70.
+
+These match the report exactly. A bad `--keep x` exits with an argparse error.
+
+### The Haaland sale in GW8 is genuine
+
+- Plan 1 of (a) sells King → B.Fernandes and Haaland → Brobbey in GW8. Planner score 248.12, gain +12.24.
+- Re-solving (a) with Haaland (411) also on the never-sell list gives:
+  - planner score 247.786, gain +12.15, the same hold;
+  - a different later path: Gibbs-White → Mbeumo in GW7, Calvert-Lewin → Brobbey in GW8, Suzuki → Trafford in GW9.
+- So keeping Haaland is feasible and scores 0.33 lower. The solver's choice is optimal, not a side effect of the constraints.
+- The encoding touches no bound but those of 268 and 165 (`:309-318`).
+- The free run's own plan 3 in (b) also sells Haaland.
+- The gap is under 0.1 estimated points, so it is a near-tie. The manager should read it as indicative, which the cards already say about moves after GW6.
+
+### Scope
+
+- Changed files are within the allowed paths, and nothing is committed (`git status`: 10 modified files, no new tracked files, HEAD 3f533b7).
+- The `ops/TASK.md` diff includes the Supervisor's new task text, which predates review. The Programmer's change is the status line.
+- The build output went to the untracked or ignored `dist`.
+
+## Tests (full run, once, by the reviewer)
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **323 tests OK** |
+| `npm run typecheck --prefix dashboard` | OK |
+| `npm run build --prefix dashboard` | OK |
+| `node --test tests/*.mjs` | **21 pass, 0 fail** |
 
 ## Blocking
 
@@ -27,20 +124,11 @@ None.
 
 ## Optional
 
-1. **Typo in the user-facing method text.** `fpl_brief/prices.py:199` lowercases the first letter of `GUIDE`, giving "markers are fPL's own predictor". Use `GUIDE` unchanged, or "markers are FPL's own…".
-2. **Label the update count as approximate in the UI.** "before the deadline" (the notes and the "soon" underline) depends on the 01:00 UTC daily-update assumption. Add a short clause to the `squad_view` method and/or `price_method`, for example "update count before the deadline is approximate".
-3. **Cross-check note when nothing was checked.** When `checked == 0`, `prices.py:206` still says "Account selling prices match the formula". Say "No prices checked" instead.
-4. **Sell note in the Candidate lens.** `candidates.py:99` looks up the purchase price via `account`, which is only set when `replace_id` is in the account prices. Using `usable` would be clearer, although the behaviour is the same for the outgoing player.
-5. **`priceMarker` lookup.** `prices.ts:57` uses `direction in MARKS`, which is true for inherited keys such as `"constructor"`. The output is still escaped, so this is harmless. `Object.hasOwn(MARKS, …)` would be tidier. A vm render test of the Candidate lens marker cell would close the one wiring path without a node render check.
-6. **Catalog size.** `data/catalog.json` grew from about 446 KB to 831 KB. Most of the growth is the indented `price_change_projections` objects; `fpl_brief/storage.write_atomic` pretty-prints dicts. Compact separators for the catalog, as `player_history.json` already uses, or storing projections as `[percent, likelihood]` tuples, would roughly halve it. The Supervisor accepted it for now.
-
-## Tests (run once by the reviewer)
-
-| Command | Result |
-| --- | --- |
-| `python -m unittest discover -s tests` | 309 tests OK (30.4 s) |
-| `npm run typecheck --prefix dashboard` | OK |
-| `npm run build --prefix dashboard` | OK (114.10 kB JS, 47.25 kB CSS) |
-| `node --test tests/*.mjs` | 19 pass, 0 fail |
-
-Spot checks I added beyond the suite: fuzzing `outlook` and `squad_view` with malformed and `None` inputs, a by-hand check of the update count, and the catalog field census above.
+1. **Relaxed-hold test.** Add a test where the steered main model needs the flagged-out XI relaxation but the free run doesn't. It should assert that the hold is still the strict one (`optimise.py:432`).
+2. **Pool difference.**
+   - Adding a forced-in player first removes him from the market list (`:165-168`). If he would have been in the top N, the steered pool gains one extra player beyond the free pool.
+   - The steered run can then occasionally beat the free best, which is what the "more estimated points" line covers.
+   - A comment would help the next reader.
+3. **Naming.** `cost_vs_unconstrained` is negative when the plan costs points: it is gain minus best. The UI shows the absolute value, so this only affects API readers. Consider renaming it to `gain_vs_unconstrained`, or documenting the sign in the README.
+4. **Wasted re-solve.** If the cached free result is ready but has no plans, `best_of` returns None and `build` re-solves the free run (`optimise.py:619-624`). This is rare and harmless, but it wastes about 20 s.
+5. **Cache key normalisation.** It isn't normalised for the default GW (`268` versus `268@6`). This is a known limitation and costs only an extra solve.

@@ -1192,8 +1192,35 @@ class OptimiseEndpointTests(unittest.TestCase):
             self.assertIn("player history", own["reason"])
             self.assertEqual(build.call_count, 2)
 
+    @unittest.skipUnless(dashboard.transfer_optimiser.available(), "highspy is not installed")
+    def test_constraints_are_parsed_cached_and_compared(self):
+        real = dashboard.transfer_optimiser.build
+        with patch.object(dashboard.transfer_optimiser, "build", side_effect=real) as build:
+            status, steered = self.get("/api/optimise?model=fpl&force_in=25&keep=11")
+            self.assertEqual((status, steered["state"]), (200, "ready"), steered.get("reason"))
+            self.assertEqual(build.call_count, 2)  # the unconstrained best, then the steered plans
+            self.assertEqual([row["kind"] for row in steered["constraints"]], ["force_in", "keep"])
+            self.assertIn("cost_vs_unconstrained", steered["plans"][0])
+            self.assertTrue(any(row["id"] == 25 for row in steered["choices"]["players"]))
+            # Same constraints in another order: cached. The unconstrained run was cached too.
+            self.assertEqual(self.get("/api/optimise?model=fpl&keep=11&force_in=25")[1], steered)
+            self.assertEqual(self.get("/api/optimise?model=fpl")[1]["unconstrained_best_gain"], steered["unconstrained_best_gain"])
+            self.assertEqual(build.call_count, 2)
+            # Different constraints: a new key (the unconstrained best still comes from the cache).
+            self.assertEqual(self.get("/api/optimise?model=fpl&keep=11")[1]["state"], "ready")
+            self.assertEqual(build.call_count, 3)
+        status, invalid = self.get("/api/optimise?model=fpl&keep=20")
+        self.assertEqual((status, invalid["state"]), (400, "invalid"))
+        self.assertIn("not in your squad", invalid["reason"])
+
+    def test_bad_constraint_query_strings_are_400(self):
+        for query in ("force_in=abc", "force_in=1@x", "keep=1@6", "force_out=-3", "force_in=1;2", "keep=1&keep=2", "force_in=1.0"):
+            status, body = self.get("/api/optimise?model=fpl&" + query)
+            self.assertEqual((status, body["state"]), (400, "invalid"), query)
+
     def test_bad_model_and_dns_rebinding_are_refused(self):
         self.assertEqual(self.get("/api/optimise?model=<x>")[0], 400)
+        self.assertEqual(self.get("/api/optimise?model=fpl&keep=1", host="evil.example")[0], 403)
         self.assertEqual(self.get("/api/optimise?model=fpl", host="evil.example")[0], 403)
 
     def test_unusable_account_data_is_blocked_with_its_message(self):

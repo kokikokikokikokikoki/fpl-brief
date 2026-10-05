@@ -13,3 +13,12 @@
 .planner .plan-bad { color: #9A2B1F; }
 .planner-most { display: inline-block; margin: 0 0 4px; padding: 2px 8px; border-radius: 999px; background: var(--enamel-shade); font-size: 13px; font-weight: 700; }
 .planner-score strong { color: var(--ink); }
+.planner-steer { margin: 10px 0 0; padding: 10px 14px; border: 1.5px solid var(--rule); border-radius: 12px; }
+.planner-steer legend { padding: 0 6px; font-weight: 700; }
+.planner-steer .lens-controls { margin: 6px 0; }
+.planner-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; padding: 0; list-style: none; }
+.planner-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--enamel-shade); font-size: 13px; font-weight: 700; }
+.planner-chip-remove { min-width: 28px; min-height: 28px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer; }
+.planner-chip-remove:hover, .planner-chip-remove:focus-visible { background: #fff; }
+.planner-constraints { color: var(--ink); }
+.planner-cost strong { color: #9A2B1F; }

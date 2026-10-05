@@ -61,7 +61,7 @@ JEV_LOCK = threading.Lock()
 MATCHDAY_GET = matchday.cached_getter()
 # Transfer planner results per (snapshot time, account capture time, model); solves are serialised (CPU-bound).
 OPTIMISE_CACHE = {}
-OPTIMISE_CACHE_SIZE = 4
+OPTIMISE_CACHE_SIZE = 8  # unconstrained and steered (force in/out, keep) results
 OPTIMISE_LOCK = threading.Lock()
 
 
@@ -693,10 +693,19 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return None
 
-    def optimise(self, snapshot, catalog, model):
-        """Top transfer plans (read-only estimates). Needs fresh account data, like the Candidate Lens and planned transfers."""
+    def optimise(self, snapshot, catalog, query):
+        """Top transfer plans (read-only estimates). Needs fresh account data, like the Candidate Lens and planned transfers.
+
+        Optional steering: force_in=ID[@GW],... force_out=ID[@GW],... keep=ID,... (integers only, else 400)."""
+        model = query.get("model", [transfer_optimiser.DEFAULT_MODEL])[0]
         if model not in transfer_optimiser.MODEL_LABELS:
             return self.send_json({"error": "model must be 'own' or 'fpl'"}, HTTPStatus.BAD_REQUEST)
+        try:
+            if any(len(query.get(name, [])) > 1 for name in transfer_optimiser.CONSTRAINT_KINDS):
+                raise ValueError("Give each of force_in, force_out and keep at most once")
+            constraints = transfer_optimiser.parse_constraints(*(query.get(name, [""])[0] for name in transfer_optimiser.CONSTRAINT_KINDS))
+        except ValueError as error:
+            return self.send_json({"state": "invalid", "reason": str(error)}, HTTPStatus.BAD_REQUEST)
         if not transfer_optimiser.available():
             return self.send_json(dict(transfer_optimiser.UNAVAILABLE))
         config = load_config()
@@ -707,20 +716,40 @@ class Handler(SimpleHTTPRequestHandler):
         if private.get("usable") is not True:
             return self.send_json({"state": "blocked", "reason": ("The transfer planner needs a fresh capture of your FPL account "
                                                                   "(selling prices, bank and free transfers). " + str(private.get("message") or "")).strip()})
-        key = (snapshot.get("generated_at_utc"), private.get("captured_at_utc"), model)
+        base_key = (snapshot.get("generated_at_utc"), private.get("captured_at_utc"), model)
+        key = base_key + (transfer_optimiser.constraints_key(constraints),)
+        picker = transfer_optimiser.choices(snapshot, catalog)
         with OPTIMISE_LOCK:
             if key not in OPTIMISE_CACHE:
                 freshness = snapshot_freshness(snapshot, config.get("stale_after_hours", 8))
+                history = self.player_history()
                 try:
-                    result = transfer_optimiser.build(snapshot, catalog, private, freshness, model, history=self.player_history())
+                    best = None
+                    if transfer_optimiser.has_constraints(constraints):
+                        # The unconstrained best is solved once and cached like any other result.
+                        unconstrained_key = base_key + (transfer_optimiser.constraints_key(None),)
+                        if unconstrained_key not in OPTIMISE_CACHE:
+                            unconstrained = transfer_optimiser.build(snapshot, catalog, private, freshness, model, history=history)
+                            if unconstrained.get("state") != "ready":
+                                return self.send_json({**unconstrained, "choices": picker})
+                            self.cache_plans(unconstrained_key, unconstrained)
+                        best = transfer_optimiser.best_of(OPTIMISE_CACHE[unconstrained_key])
+                    result = transfer_optimiser.build(snapshot, catalog, private, freshness, model, history=history,
+                                                      constraints=constraints, unconstrained_best=best)
                 except Exception:
                     return self.send_json({"state": "unavailable", "reason": "The planner hit an unexpected error with this data. Try again after refreshing FPL data."})
                 if result.get("state") != "ready":
-                    return self.send_json(result)
-                while len(OPTIMISE_CACHE) >= OPTIMISE_CACHE_SIZE:
-                    OPTIMISE_CACHE.pop(next(iter(OPTIMISE_CACHE)))
-                OPTIMISE_CACHE[key] = result
-            return self.send_json(OPTIMISE_CACHE[key])
+                    status = HTTPStatus.BAD_REQUEST if result.get("state") == "invalid" else HTTPStatus.OK
+                    return self.send_json({**result, "choices": picker}, status)
+                self.cache_plans(key, result)
+            return self.send_json({**OPTIMISE_CACHE[key], "choices": picker})
+
+    @staticmethod
+    def cache_plans(key, result):
+        """Bounded insertion-ordered cache of ready planner results (caller holds OPTIMISE_LOCK)."""
+        while len(OPTIMISE_CACHE) >= OPTIMISE_CACHE_SIZE:
+            OPTIMISE_CACHE.pop(next(iter(OPTIMISE_CACHE)))
+        OPTIMISE_CACHE[key] = result
 
     def host_is_local(self):
         host = (self.headers.get("Host") or "").strip().lower()
@@ -954,7 +983,7 @@ class Handler(SimpleHTTPRequestHandler):
             result = transfer_plan.build(snapshot or {}, catalog, self.private_data(config, snapshot or {}), freshness, pairs, history=self.player_history())
             return self.send_json(result, HTTPStatus.OK if result["state"] == "ready" else HTTPStatus.UNPROCESSABLE_ENTITY)
         if path == "/api/optimise":
-            return self.optimise(snapshot or {}, catalog, parse_qs(parsed.query).get("model", [transfer_optimiser.DEFAULT_MODEL])[0])
+            return self.optimise(snapshot or {}, catalog, parse_qs(parsed.query))
         if path.startswith("/api/players/"):
             try:
                 player_id = int(path.rsplit("/", 1)[1])

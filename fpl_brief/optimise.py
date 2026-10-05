@@ -13,6 +13,7 @@ Read-only: it suggests plans from estimates and never contacts FPL. Every next-G
 checked by ``plan.build`` (the same rule checker the planned-transfers strip uses).
 """
 
+import re
 import time
 
 from . import plan as rules
@@ -61,6 +62,10 @@ INSTALL_HINT = "python -m pip install -r requirements-planner.txt"
 INF = float("inf")
 # The planner score (the objective) splits into these parts; plans report each one against holding.
 SCORE_PARTS = ("points_gain", "hits", "transfer_penalty", "ft_value", "bank_value")
+# Manager steering: players forced in or out by a GW, and owned players never sold. Few, so the plans stay comparable.
+MAX_CONSTRAINTS = 5
+CONSTRAINT_KINDS = ("force_in", "force_out", "keep")
+CONSTRAINT_LABELS = {"force_in": "Must buy", "force_out": "Must sell", "keep": "Never sell"}
 
 
 def available():
@@ -82,11 +87,82 @@ def settings(**overrides):
     return base
 
 
-def select_pool(players, projections, owned):
-    """Deterministic pool of player ids (see POOL_TOP / POOL_VALUE)."""
+def parse_constraints(force_in="", force_out="", keep=""):
+    """Strict parse of "ID[@GW],..." (force_in/force_out) and "ID,..." (keep); raises ValueError on anything else."""
+    def ids(raw, name, with_gw):
+        found = []
+        for part in (raw or "").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            match = re.fullmatch(r"([0-9]{1,6})(?:@([0-9]{1,2}))?" if with_gw else r"([0-9]{1,6})", part)
+            if not match:
+                raise ValueError(f"{name} must be a comma-separated list of player ids" + (" with an optional @GW" if with_gw else ""))
+            found.append((int(match.group(1)), int(match.group(2)) if match.group(2) else None) if with_gw else int(match.group(1)))
+        return found
+    return {"force_in": ids(force_in, "force_in", True), "force_out": ids(force_out, "force_out", True), "keep": ids(keep, "keep", False)}
+
+
+def has_constraints(constraints):
+    return bool(constraints) and any(constraints.get(kind) for kind in CONSTRAINT_KINDS)
+
+
+def constraints_key(constraints):
+    """Hashable, order-free form (cache keys)."""
+    constraints = constraints or {}
+    return tuple(tuple(sorted(constraints.get(kind) or [], key=str)) for kind in CONSTRAINT_KINDS)
+
+
+def _span(gameweeks):
+    return f"GW{gameweeks[0]}" + (f"–{gameweeks[-1]}" if len(gameweeks) > 1 else "")
+
+
+def validate_constraints(constraints, known, owned, gameweeks):
+    """Normalise ``constraints`` (default by-GW = the next GW) or return {"state": "invalid", "reason"}."""
+    constraints = constraints or {}
+    unknown = set(constraints) - set(CONSTRAINT_KINDS)
+    if unknown:
+        return {"state": "invalid", "reason": "Unknown constraint: " + ", ".join(sorted(unknown))}
+    total = sum(len(constraints.get(kind) or []) for kind in CONSTRAINT_KINDS)
+    if total > MAX_CONSTRAINTS:
+        return {"state": "invalid", "reason": f"At most {MAX_CONSTRAINTS} constraints at a time (got {total})."}
+    owned = set(owned)
+    normal = {"force_in": [], "force_out": [], "keep": []}
+    for kind in ("force_in", "force_out"):
+        for entry in constraints.get(kind) or []:
+            pid, gw = entry if isinstance(entry, (tuple, list)) else (entry, None)
+            gw = gameweeks[0] if gw is None and gameweeks else gw
+            if not isinstance(pid, int) or isinstance(pid, bool) or pid not in known:
+                return {"state": "invalid", "reason": f"Player {pid} is not in the player list."}
+            if gw not in gameweeks:
+                return {"state": "invalid", "reason": f"GW{gw} is outside the planning horizon ({_span(gameweeks)})." if gameweeks
+                        else "No gameweeks to plan."}
+            if (pid, gw) in normal[kind]:
+                return {"state": "invalid", "reason": f"Player {pid} is listed twice."}
+            normal[kind].append((pid, gw))
+    for pid in constraints.get("keep") or []:
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid not in known:
+            return {"state": "invalid", "reason": f"Player {pid} is not in the player list."}
+        if pid not in owned:
+            return {"state": "invalid", "reason": f"Player {pid} is not in your squad, so he can't be kept."}
+        if pid in normal["keep"]:
+            return {"state": "invalid", "reason": f"Player {pid} is listed twice."}
+        normal["keep"].append(pid)
+    clash = set(normal["force_in"]) & set(normal["force_out"])
+    if clash:
+        pid, gw = sorted(clash)[0]
+        return {"state": "invalid", "reason": f"Player {pid} can't be forced both in and out at GW{gw}."}
+    kept_out = sorted({pid for pid, _ in normal["force_out"]} & set(normal["keep"]))
+    if kept_out:
+        return {"state": "invalid", "reason": f"Player {kept_out[0]} can't be both kept and sold."}
+    return normal
+
+
+def select_pool(players, projections, owned, extra=()):
+    """Deterministic pool of player ids (see POOL_TOP / POOL_VALUE); ``extra`` (forced-in players) is always included."""
     def score(pid):
         return float((projections.get(pid) or {}).get("xp_6_decayed") or 0.0)
-    pool = set(owned)
+    pool = set(owned) | set(extra)
     for kind in SQUAD_SHAPE:
         market = [pid for pid, player in players.items() if player.get("element_type") == kind and pid in projections
                   and player.get("status") not in GONE_STATUSES and pid not in pool]
@@ -140,8 +216,12 @@ def _add_row(h, terms, lower, upper):
     h.addRow(lower, upper, len(indices), np.array(indices, dtype=np.int32), np.array([merged[i] for i in indices], dtype=float))
 
 
-def formulate(data, config, hold=False, relax_out=False):
-    """Build the §3 model. ``data``: pool ids, kinds, clubs, xp (per week), owned, sell/buy prices, bank, fts, hit cost."""
+def formulate(data, config, hold=False, relax_out=False, constraints=None):
+    """Build the §3 model. ``data``: pool ids, kinds, clubs, xp (per week), owned, sell/buy prices, bank, fts, hit cost.
+
+    ``constraints`` (validated; ignored for the hold baseline) fixes variable bounds: force_in (p, gw) sets squad[p, gw] = 1,
+    force_out (p, gw) sets squad[p, gw] = 0, and keep p sets out[p, w] = 0 for every week.
+    """
     pool, weeks = data["pool"], range(len(data["gameweeks"]))
     kinds, clubs, xp = data["kinds"], data["clubs"], data["xp"]
     owned = set(data["owned"])
@@ -226,6 +306,16 @@ def formulate(data, config, hold=False, relax_out=False):
         m.row([(nxt, 1)] + unused, upper=1)
         m.row([(nxt, 1), (y, -BIG_M)] + unused, lower=1 - BIG_M)
         m.row([(nxt, 1), (y, BIG_M)], lower=MAX_FREE_TRANSFERS)
+    if constraints and not hold:
+        index = {gw: w for w, gw in enumerate(data["gameweeks"])}
+        for p, gw in constraints.get("force_in") or []:
+            m.lower[v["squad"][p, index[gw]]] = 1.0
+        for p, gw in constraints.get("force_out") or []:
+            if (p, index[gw]) in v["squad"]:  # a player outside the pool can never be in the squad
+                m.upper[v["squad"][p, index[gw]]] = 0.0
+        for p in constraints.get("keep") or []:
+            for w in weeks:
+                m.upper[v["out"][p, w]] = 0.0
     return m, v
 
 
@@ -297,15 +387,32 @@ def score_against(found, hold):
     return {"breakdown": breakdown, "objective_gain": round(sum(breakdown.values()), 4)}
 
 
-def solve(data, config=None):
-    """Hold baseline plus up to ``top`` distinct plans. Returns {"hold", "plans", "caveats"} or {"state": ...}."""
+def infeasible_reason(config):
+    return (f"No legal plan meets these constraints: the budget, the {rules.CLUB_LIMIT}-per-club limit, at most "
+            f"{config['max_transfers_per_gw']} transfers per GW or no moves in the last {config['no_transfer_last_gws']} GWs rule "
+            f"them out together. Remove or loosen one (for example a later GW) and try again.")
+
+
+def solve(data, config=None, constraints=None):
+    """Hold baseline plus up to ``top`` distinct plans. Returns {"hold", "plans", "caveats"} or {"state": ...}.
+
+    ``constraints`` ({"force_in": [(id, gw|None)], "force_out": [...], "keep": [id]}) steer the plans only; the hold
+    baseline stays unconstrained so gains are still measured against making no transfers. Forced-in players must be in
+    the pool. Invalid input gives {"state": "invalid"}; constraints no legal plan can meet give {"state": "infeasible"}.
+    """
     if highspy is None:
         return dict(UNAVAILABLE)
     config = config or settings()
+    if has_constraints(constraints):
+        constraints = validate_constraints(constraints, set(data["pool"]), data["owned"], list(data["gameweeks"]))
+        if "state" in constraints:
+            return constraints
+    else:
+        constraints = None
     caveats = []
 
     def run(hold, relax_out):
-        model, v = formulate(data, config, hold=hold, relax_out=relax_out)
+        model, v = formulate(data, config, hold=hold, relax_out=relax_out, constraints=constraints)
         h = model.highs(config["time_limit"])
         started = time.perf_counter()
         h.run()
@@ -318,8 +425,11 @@ def solve(data, config=None):
         caveats.append("No legal XI avoids every player flagged out next GW, so flagged players may appear in that XI at their projection.")
         model, v, h, seconds = run(False, True)
     if _status(h) == "infeasible":
-        return {"state": "infeasible", "reason": "No legal squad fits these prices, bank and rules."}
-    hold_model, hold_v, hold_h, hold_seconds = run(True, relax)
+        if h.getModelStatus() == highspy.HighsModelStatus.kTimeLimit:
+            return {"state": "infeasible", "reason": f"No legal plan was found within the {config['time_limit']:g}s time limit."}
+        return {"state": "infeasible", "reason": infeasible_reason(config) if constraints else "No legal squad fits these prices, bank and rules."}
+    # With constraints the hold is solved exactly as in the unconstrained run (strict XI first), so gains stay comparable.
+    hold_model, hold_v, hold_h, hold_seconds = run(True, relax and not constraints)
     if _status(hold_h) == "infeasible":
         hold_model, hold_v, hold_h, hold_seconds = run(True, True)
         caveats.append("Holding the current squad needs a player flagged out next GW in the XI; the hold baseline counts his projection.")
@@ -383,8 +493,48 @@ def method_text(model, gameweeks, config):
             f"Nothing is sent to FPL.")
 
 
-def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=None, now=None, config=None):
-    """Top plans for the manager's real squad. States: ready, blocked, unavailable, infeasible."""
+def describe_constraints(constraints, players):
+    """Named rows for the UI chips and card summaries, in a fixed order (force_in, force_out, keep)."""
+    rows = []
+    for kind in CONSTRAINT_KINDS:
+        for entry in (constraints or {}).get(kind) or []:
+            pid, gw = entry if kind != "keep" else (entry, None)
+            name = (players.get(pid) or {}).get("web_name") or f"Player {pid}"
+            text = f"{CONSTRAINT_LABELS[kind]} {name}" + (f" by GW{gw}" if gw is not None else "")
+            rows.append({"kind": kind, "id": pid, "name": name, "gw": gw, "text": text})
+    return rows
+
+
+def best_of(result):
+    """Plan 1 (highest planner score) of a ready result as {"gain", "action"}, or None."""
+    if not isinstance(result, dict) or result.get("state") != "ready" or not result.get("plans"):
+        return None
+    top = result["plans"][0]
+    return {"gain": top["gain"], "action": top.get("next_gw_action")}
+
+
+def _forced_in_problem(validated, players, owned, gameweeks):
+    """A plain reason when a forced-in player can't be bought in time, before running the solver."""
+    for pid, gw in validated["force_in"]:
+        if pid in owned:
+            continue
+        player = players[pid]
+        name = player.get("web_name") or f"Player {pid}"
+        if player.get("status") in GONE_STATUSES:
+            return f"{name} has left his club or is not eligible in FPL, so he can't be bought."
+        if gw == gameweeks[0] and not rules._available(player):
+            return (f"{name} is flagged doubtful or unavailable for GW{gw}, so the rule checker won't buy him for that "
+                    f"week. Pick a later GW for him.")
+    return None
+
+
+def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=None, now=None, config=None,
+          constraints=None, unconstrained_best=None):
+    """Top plans for the manager's real squad. States: ready, blocked, unavailable, infeasible, invalid.
+
+    ``constraints`` see ``solve``. With constraints, ``unconstrained_best`` (``best_of`` an unconstrained result, e.g.
+    cached by the server) is the comparison point; when omitted it is solved here without the constraints.
+    """
     if highspy is None:
         return dict(UNAVAILABLE)
     if model not in MODEL_LABELS:
@@ -408,7 +558,18 @@ def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=No
     if not gameweeks:
         return {"state": "blocked", "reason": "No upcoming gameweeks are in the fixture data; refresh FPL data."}
     projections = projected["players"]
-    pool = select_pool(players, projections, owned)
+    validated = None
+    if has_constraints(constraints):
+        validated = validate_constraints(constraints, set(players), owned, gameweeks)
+        if "state" in validated:
+            return validated
+        problem = _forced_in_problem(validated, players, set(owned), gameweeks)
+        if problem:
+            return {"state": "infeasible", "reason": problem}
+    pool = select_pool(players, projections, owned, extra=[pid for pid, _ in (validated or {}).get("force_in", [])])
+    described = describe_constraints(validated, players)
+    if validated:  # a player outside the pool is never bought, so "not in the squad" already holds for him
+        validated = {**validated, "force_out": [(pid, gw) for pid, gw in validated["force_out"] if pid in pool]}
     free = private.get("free_transfers")
     data = {
         "pool": pool, "gameweeks": gameweeks, "owned": owned,
@@ -424,8 +585,11 @@ def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=No
         "buyable_next": {p for p in pool if rules._available(players[p])},
     }
     started = time.perf_counter()
-    solved = solve(data, config)
+    solved = solve(data, config, validated)
     if "state" in solved:
+        if solved["state"] == "infeasible" and described:
+            return {**solved, "constraints": described,
+                    "reason": "Constraints: " + "; ".join(row["text"] for row in described) + ". " + solved["reason"]}
         return solved
     caveats = list(solved["caveats"]) + list(projected.get("caveats") or [])
     plans = []
@@ -452,11 +616,36 @@ def build(snapshot, catalog, private, freshness, model=DEFAULT_MODEL, history=No
         found["most_points"] = False
     if plans:
         max(plans, key=lambda found: (found["gain"], -found["rank"]))["most_points"] = True
+    if not validated:
+        best = best_of({"state": "ready", "plans": plans})
+    elif unconstrained_best is not None:
+        best = unconstrained_best
+    else:
+        best = best_of(build(snapshot, catalog, private, freshness, model, history, now, config))
+    if validated:
+        caveats.append("Your constraints steer these plans only; the holding baseline ignores them, so gains are still against making no transfers.")
+    if validated and best is not None:
+        for found in plans:
+            found["cost_vs_unconstrained"] = round(found["gain"] - best["gain"], 2)
     return {"state": "ready", "model": model, "model_label": MODEL_LABELS[model], "gameweeks": gameweeks,
             "hold": _present(solved["hold"], players, data), "plans": plans, "pool_size": len(pool),
+            "constraints": described,
+            "unconstrained_best_gain": best["gain"] if best else None,
+            "unconstrained_best_action": best["action"] if best else None,
             "settings": {key: list(value) if isinstance(value, tuple) else value for key, value in config.items()},
             "solve_seconds": round(time.perf_counter() - started, 3),
             "method": method_text(model, gameweeks, config), "caveats": caveats}
+
+
+def choices(snapshot, catalog):
+    """Compact player list for the planner's must-buy / must-sell / never-sell pickers (public catalog data)."""
+    teams = {team.get("id"): team.get("short_name") for team in (catalog or {}).get("teams", []) if isinstance(team, dict)}
+    owned = [pick.get("element") for pick in ((snapshot or {}).get("squad_snapshot") or {}).get("picks") or [] if isinstance(pick, dict)]
+    rows = [{"id": p["id"], "name": p.get("web_name") or f"Player {p['id']}", "team": teams.get(p.get("team")),
+             "position": p.get("element_type"), "price": p.get("now_cost")}
+            for p in (catalog or {}).get("players", []) if isinstance(p, dict) and isinstance(p.get("id"), int)
+            and (p.get("status") not in GONE_STATUSES or p["id"] in owned)]
+    return {"owned": [pid for pid in owned if isinstance(pid, int)], "players": sorted(rows, key=lambda row: (str(row["name"]).lower(), row["id"]))}
 
 
 def _present(found, players, data):
@@ -472,9 +661,10 @@ def _present(found, players, data):
 
 
 def main(argv=None):
-    """Manual check: python -m fpl_brief.optimise [own|fpl] (reads the local account capture; never writes)."""
+    """Manual check: python -m fpl_brief.optimise [own|fpl] [--force-in ID[@GW],...] [--force-out ID[@GW],...] [--keep ID,...]
+    (reads the local account capture; never writes)."""
+    import argparse
     import json
-    import sys
     from datetime import datetime, timezone
     from pathlib import Path
 
@@ -483,8 +673,16 @@ def main(argv=None):
     from . import private_team
     from .storage import read_json
 
-    args = sys.argv[1:] if argv is None else argv
-    model = args[0] if args else DEFAULT_MODEL
+    parser = argparse.ArgumentParser(prog="python -m fpl_brief.optimise", description="Suggest transfer plans (read-only estimates).")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL, choices=sorted(MODEL_LABELS))
+    for flag in ("--force-in", "--force-out", "--keep"):
+        parser.add_argument(flag, action="append", default=[], help="comma-separated player ids" + ("" if flag == "--keep" else ", each with an optional @GW"))
+    args = parser.parse_args(argv)
+    try:
+        constraints = parse_constraints(",".join(args.force_in), ",".join(args.force_out), ",".join(args.keep))
+    except ValueError as error:
+        parser.error(str(error))
+    model = args.model
     root = Path(__file__).resolve().parent.parent
     snapshot = read_json(root / "data" / "latest.json", default={})
     catalog = read_json(root / "data" / "catalog.json", default={"players": [], "teams": []})
@@ -492,7 +690,8 @@ def main(argv=None):
     config = load_config()
     now = datetime.now(timezone.utc)
     private = private_team.load(root / "local" / "private_team.json", config, snapshot, now=now)
-    result = build(snapshot, catalog, private, snapshot_freshness(snapshot, config.get("stale_after_hours", 8), now), model, history, now)
+    result = build(snapshot, catalog, private, snapshot_freshness(snapshot, config.get("stale_after_hours", 8), now), model, history, now,
+                   constraints=constraints)
     print(json.dumps(result, indent=2, default=str))
 
 

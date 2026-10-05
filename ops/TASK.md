@@ -1,4 +1,67 @@
-# Active task — Stage 5: price awareness (selling prices and FPL's price-change predictor)
+# Active task — Planner: force players in or out
+
+**Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
+**Status:** APPROVED (review PASS 2026-10-05; full suite 323 OK)
+**Date:** 2026-10-05
+**Overseer request:** "yes add the force player option run it" (2026-10-05). The manager wants to try plans such as "keep João Pedro, bring in King" that the free optimiser won't propose. The planner ignores mini-league ownership, so the manager needs to steer it.
+
+## Required implementation
+
+1. **`fpl_brief/optimise.py`.** `build(...)` and `solve(...)` accept optional constraints:
+   - `force_in`: list of `(player_id, by_gw)`. The player must be in the squad at `by_gw`. Default `by_gw` is the next GW.
+   - `force_out`: list of `(player_id, by_gw)`. The player must not be in the squad at `by_gw`.
+   - `keep`: list of player ids. Owned players who may never be sold within the horizon.
+   - **Pool:** forced-in players are always in the pool.
+   - **Validation, with a clear `{"state": "invalid", "reason": ...}`:**
+     - the player id exists;
+     - `by_gw` is in the horizon;
+     - a `keep` player is actually owned;
+     - no player is both forced in and forced out at the same time;
+     - at most 5 constraints in total.
+   - If the constraints make the model infeasible (budget, club limit, frozen last GWs), return `state: "infeasible"` with a plain reason. Don't silently drop a constraint.
+   - **The hold baseline stays unconstrained,** so the gain is still measured against making no transfers. The response also includes `unconstrained_best_gain` (the best plan without constraints, cached), so the UI can show "costs X points against the free best".
+   - The GW6 distinctness cut, the rules check and the scoring stay as they are.
+2. **Server.** `GET /api/optimise` accepts `force_in=ID[@GW],...`, `force_out=ID[@GW],...` and `keep=ID,...`.
+   - Parse strictly: integers only, otherwise a 400.
+   - Include the constraints in the cache key.
+   - Keep the existing gate and loopback rules.
+3. **UI (Transfer planner panel).**
+   - **Controls:**
+     - "Must buy" and "Must sell", each a player picker or search plus an optional "by GW" select;
+     - "Never sell", owned players only.
+   - Show the active constraints as chips with remove buttons, and re-run on "Suggest plans".
+   - Each card shows the constraint summary and "Costs X points against the unconstrained best", or "Same as the unconstrained best".
+   - Everything is escaped. Keep the existing style.
+4. **CLI.** `python -m fpl_brief.optimise own --force-in 268 --keep 165` works.
+5. **Tests.**
+   - A forced-in player is in the squad by its GW.
+   - Force-out and keep are respected.
+   - The infeasible case gives a clear reason.
+   - Invalid input gives `invalid`, and bad query strings give a 400 at the endpoint.
+   - The cache key includes the constraints.
+   - The unconstrained-best comparison is reported.
+   - Node render of the chips and the cost line, escaped.
+
+## Allowed paths
+
+`fpl_brief/optimise.py`, `dashboard.py`, `dashboard/transfer-planner.ts|css`, `tests/test_optimise.py`, `tests/test_dashboard.py`, `tests/test_transfer_planner.mjs`, `README.md` (planner paragraph), `ops/IMPLEMENTATION_REPORT.md`, `ops/TASK.md` (status line only). Do not commit. Do not run the fetcher.
+
+## Test command
+
+`python -m unittest discover -s tests` · `npm run typecheck --prefix dashboard` · `npm run build --prefix dashboard` · `node --test tests/*.mjs`
+
+## Real run to report
+
+Use the manager's squad with our model:
+- (a) keep João Pedro (165) and force in King (268) for GW6;
+- (b) keep João Pedro only;
+- (c) force in King only.
+
+For each, give the top plan, its gain and the cost against the unconstrained best (+16.05).
+
+---
+
+# Previous task — Stage 5: price awareness (selling prices and FPL's price-change predictor)
 
 **Owner:** Programmer (Opus 5.5 subagent, medium effort). Review by a separate Opus 5.5 subagent (medium effort).
 **Status:** APPROVED (review PASS 2026-10-05; post-review text polish applied, full suite 310 OK; local only)
